@@ -34,28 +34,35 @@ double c_0=3*pow(10,10);
 
 
 
-double R=1.5;
-double B_s=1;
-double M=4;
-double q=4;
-double k=4;
-double bbbeta=0.5;
+double R=1.1;
+double B_s=1.0;
+double M=8.0;
+double q=4.0;
+double k=4.0;
+double bbbeta=0.9;
 double p_0=bbbeta*2*R*R/(2*(bbbeta+R*R-1));
 // double p_0=0.6501;   
 
+double a_nenorm_0=1.0;
+double a2_nenorm_0=1.0;
 
-double L=350;
 
-// double RR_w=1.000000000001;
-double a_0=20;
-double r_0=45;
-double RR_w=r_0/a_0;
+
+double L=350.0;
+
+double RR_w=1.5;
+double a_0=20.0;
+// double r_0=45;
+double r_0=RR_w*a_0;
+// double RR_w=r_0/a_0;
 double N_c=pow(10,13);
-double B_v_=3000;
+double B_v_=3000.0;
 double B_s_=B_v_*R;
 double m_i=940*pow(10,6)*1.6*pow(0.1,12); // масса покоя протона в эрг
 
-double w_0=B_s_/(L*sqrt(N_c*m_i/c_0/c_0));
+// double w_0=B_s_/(L*sqrt(N_c*m_i/c_0/c_0));
+double w_0=B_v_/(L*sqrt(N_c*1.6726*pow(0.1,24)));
+
 double c=c_0;
 double zeta_0=c/w_0/r_0;
 //608053020
@@ -80,50 +87,48 @@ double f(double psi){
     }
 }
 double p(double psi){
-    return p_0*f(psi)/(2*R*R);
+    return p_0*f(psi)/(2.0*R*R);
 }
 double B_v(double z){
-    return (1+(M-1)*pow(sin(M_PI*z/2),q))/R;
+    return (1.0+(M-1.0)*pow(sin(M_PI*z/2.0),q))/R;
 }
 double B_v2(double z){
     return 1.0/(B_v(z)*B_v(z));
 }
 double d_B_v(double z){
-    return (M-1)*q*M_PI/2*cos(M_PI*z/2)*pow(sin(M_PI*z/2),q-1)/R;
+    return (M-1.0)*q*M_PI/2.0*cos(M_PI*z/2.0)*pow(sin(M_PI*z/2.0),q-1)/R;
 }
 double b_v(double z){
-    return (1+(M-1)*pow(sin(M_PI*z/2),q))/R;
+    return (1.0+(M-1.0)*pow(sin(M_PI*z/2.0),q))/R;
 }
 double B(double z,double psi ){
     double bb_v=b_v(z);
-    if(bb_v>1){return bb_v;}
-    else{return sqrt((bb_v*bb_v*R*R-p(psi)*2*(R*R))/(R*R-p(psi)*2*(R*R)));}
+    if(bb_v>1.0){return bb_v;}
+    else{return sqrt((bb_v*bb_v-p(psi)*2.0)/(1.0-p(psi)*2.0));}
 }
 double a_v(double z){
-    return sqrt(2/B_v(z));
+    return sqrt(2.0/B_v(z));
 } 
 double d_a_v(double z){
-    return -sqrt(2/B_v(z))/(2*B_v(z))*d_B_v(z);
+    return -sqrt(2.0/B_v(z))/(2.0*B_v(z))*d_B_v(z);
 } 
 double dd_a_v(double z){
     return boost::math::differentiation::finite_difference_derivative(d_a_v,z);
 } 
 double a_nenorm(double z){
      boost::math::quadrature::gauss_kronrod<double, 31> integrator;
-        auto f_fixed_z= [&](double psi) { return 1/B(z, psi); };
+        auto f_fixed_z= [&](double psi) { return 1.0/B(z, psi); };
         return sqrt(2.0*integrator.integrate(f_fixed_z, 0,1));
 }
-double a_nenorm_0=a_nenorm(0);
 double a(double z){
     return a_nenorm(z)/a_nenorm_0;
 }
 double a2_nenorm(double z){
      boost::math::quadrature::gauss_kronrod<double, 31> integrator;
-        auto f_fixed_z= [&](double psi) { return 1/B(z, psi); };
+        auto f_fixed_z= [&](double psi) { return 1.0/B(z, psi); };
         return 2.0*integrator.integrate(f_fixed_z, 0,1);
 }
 
-double a2_nenorm_0=a2_nenorm(0);
 double a2(double z){
     return a2_nenorm(z)/a2_nenorm_0;
 }
@@ -134,13 +139,13 @@ double d_a2(double z){
     return boost::math::differentiation::finite_difference_derivative(a2,z);
 }
 double p_sred(double z,double psi){
-    return p(psi)*(1-B(z,psi)/B_s);
+    return p(psi)*(1.0-B(z,psi)/B_s);
 }
 double p_avg(double z){
      boost::math::quadrature::gauss_kronrod<double, 31> integrator;
             auto f_fixed_z= [&](double psi) { return p_sred(z,psi)/B(z, psi); };
-    double res= 2.0/(a2(z))*integrator.integrate(f_fixed_z,0,1);
-    if (res<0
+    double res= 2.0/(a2(z))*integrator.integrate(f_fixed_z,0,1.0);
+    if (res<0.0
     ){return 0;}else{return res;};
 }
 double right_func1(double z){//не используется
@@ -165,7 +170,7 @@ double r_w(double z){
 std::string r_w_str = "r_w_1.0000000001_a(z)";
 double lambda(double z){
    // return INFINITY;
-    return (r_w(z)*r_w(z)+a(z)*a(z))/(r_w(z)*r_w(z)-a(z)*a(z));
+    return (r_w(z)*r_w(z)*RR_w*RR_w+a(z)*a(z))/(r_w(z)*r_w(z)*RR_w*RR_w-a(z)*a(z));
 }
 std::complex<double> lambda_0(double z, std::complex<double> omega)// не нормированная, уже не используется
 {
@@ -308,7 +313,7 @@ double Qfunc(double z){
     return d_B_v(z)/B_v(z)+d_a2(z)/a2(z);
 }
 double z_s(){
-    return 2/M_PI*std::asin(pow((R-1)/(M-1),1/q));
+    return 2.0/M_PI*std::asin(pow((R-1)/(M-1),1/q));
 }
 double d_phi_z_s(double phi_z_s,double delta){
 return (Qfunc(z_s()+delta)-Qfunc(z_s()-delta))/(lambda(z_s())+1)*phi_z_s;
@@ -350,7 +355,7 @@ void ideal(){//использовалось раннее
     state_type y0 = { 1, 0};
     // Integration range and initial step size
     double x0 = 0;   // Start of the interval
-    double x1 = 1;     // End of the interval
+    double x1 = 1.0;     // End of the interval
     double dx = 0.001; // Initial step size
     // Perform the integration
     integrate_const( stepper, my_ode_system, y0, x0, x1, dx, my_observer );
@@ -409,10 +414,22 @@ double phase=M_PI/2;
 
 void reshatel(int resuis,double dx) // первый аргумент задаёт название папки для сохранения данных, второй шаг для решения уравнения
 {
-
+r_0=a_0*RR_w;
+// a_nenorm_0=a_nenorm(0);
+// a2_nenorm_0=a2_nenorm(0);
+RR_w=RR_w*a(0);
+std::cout <<"RR_w: " <<RR_w*a(0)<< std::endl;
+    std::cout <<"k: "<< k<<std::endl;
+    std::cout <<"M: "<< M<<std::endl;
+    std::cout <<"q: "<< q<<std::endl;
+    std::cout <<"a(0): "<< a(0)<<std::endl;
+    std::cout <<"r_w(0): "<<r_w(0)<<std::endl;
+    std::cout <<"w_0: "<< w_0<<std::endl;
+    std::cout <<"zeta_0: "<< zeta_0<<std::endl;
+    std::cout <<"Lambda : "<< lambda(0)<<std::endl;
     double Z_s=z_s();
         double phi_z_s;
-double delta=0.00000001; // задаёт точность зануления на правой границе 
+double delta=0.00001; // задаёт точность зануления на правой границе 
 double phase_step_min=pow(0.1,4);
 double r_step_min=pow(0.1,4);// сделаны чтобы обрывать бесконечные уменьшения шага
 double phase_step=-M_PI/30;
@@ -430,7 +447,7 @@ std::vector<std::pair<double,std::pair<double,double>>> bc_arr;
         Gnuplot gp;
     double beta=p_0*(R*R-1)/(R*R-p_0);
     
-    std::cout<< beta<<std::endl;
+    std::cout<<"Beta: " <<beta<<std::endl;
     std::complex<double> bc=1.0+1.0i;
     std::complex<double> previous_bc=bc*10.0;
 
@@ -536,22 +553,27 @@ std::cout << std::endl<<"real:"<< std::real( (1.0* std::sqrt(w1 * mu / (8 * M_PI
 std::cout << std::endl<< "w^2="<<w1*w1 << "  w:"<<w1 << "r="<<r<<",phase=Pi*"<<phase/M_PI;
 std::cout << std::endl<<"sIgma"<< sigma;
 
-
-
-std::vector<std::pair<double,double>> aaa,xi,rw;
+std::vector<std::pair<double,double>> aaa,xi,rw,lambuda;
+std::vector<std::pair<double,std::complex<double>>> lambuda1;
 
 double size=1/static_cast<double>(res.size());
 
-double xz=-size;
+double xz=0;
 for(int j=0;j<res.size();j++){
    //std::cout << "i:" << j <<"z="<<xz<<std::endl;
-    xz+=size;
     double az=a(xz);
     double bv=B_v(xz);
     double rww=r_w(xz);
+    double lambdaa=lambda(xz);
+    std::complex<double> lambdaa1=lambda_1(xz,30);
 aaa.push_back(std::make_pair(xz,az));
 rw.push_back(std::make_pair(xz,rww));
 xi.push_back(std::make_pair(xz,(real_res[j].second/bv/az)));
+lambuda.push_back(std::make_pair(xz,lambdaa));
+lambuda1.push_back(std::make_pair(xz,lambdaa1));
+    // std::cout << "a:" << az<<"z:"<<xz<<std::endl;
+    // std::cout << "a(0):" << a(0)<<std::endl;
+    xz+=size;
 }
 
 
@@ -566,6 +588,8 @@ std::string name_a="a"+name1;
 std::string name_xi="xi"+name1;
 std::string name_rw="rw"+name1;
 std::string name_w="omega_dzeta"+name1;
+std::string name_lambda="lambda"+name1;
+std::string name_lambda1="lambda1"+name1;
 std::string resis;
 if(resuis==0){
      resis="_new_ideal";
@@ -631,6 +655,16 @@ std::filesystem::create_directories(folder1 + "/" + folder2 + "/" + folder3);
         file << "omega:" <<w1 << " dzeta:"<< dzeta(w1) << " bc:" << sqrt(pow(dres.back().second,2)+pow(dres1.back().second,2));
     file.close();}
 
+{std::ofstream file(folder1 + "/" + folder2 + "/" +folder3 + "/" + name_lambda);
+    for (const auto& [x, y] : lambuda) {
+        file << x << " " << y << '\n';
+    }
+    file.close();}
+{std::ofstream file(folder1 + "/" + folder2 + "/" +folder3 + "/" + name_lambda1);
+    for (const auto& [x, y] : lambuda1) {
+        file << x << " " << y << '\n';
+    }
+    file.close();}
 
 
 
@@ -762,39 +796,17 @@ std::cout << std::endl<<"sIgma"<< sigma;
 
 int main(){
 
-// RR_w=1.1;
-//     std::stringstream ss3;
-// ss3 << std::setprecision(15) << RR_w;
-// std::string s3 = ss3.str();
-
-
-
-
-// r_w_str = "r_w_"+s3+"_a_100_6_+";
-
-for(double i=a_0+1;i<45;i+=2.5){
-        r=0.15; 
+r=0.95; 
 
  phase=M_PI/2;
-    r_0=i;
-    RR_w=r_0/a_0;
- r_w_str="cyl_r_"+std::to_string(i);
- for(double i=0.2;i<=0.99;i+=0.01){// в виде подобного цикла обычно считаются графики, которые я вам показываю
+ r_w_str="st_RR_w"+std::to_string(RR_w);
+ 
+ for(double i=0.250;i<=0.99;i+=0.025){// в виде подобного цикла обычно считаются графики, которые я вам показываю
+    RR_w=1.5;
     bbbeta=i;   
-    p_0=bbbeta*2*R*R/(2*(bbbeta+R*R-1));
+    p_0=bbbeta*2.0*R*R/(2.0*(bbbeta+R*R-1.0));
 
-    reshatel(0, 0.01);
-}}
-r=0.15; 
+    reshatel(0, 0.003);
 
- phase=M_PI/2;
-    r_0=45;
-    RR_w=r_0/a_0;
- r_w_str="cyl_r_"+std::to_string(r_0);
- for(double i=0.4;i<=0.99;i+=0.01){// в виде подобного цикла обычно считаются графики, которые я вам показываю
-    bbbeta=i;   
-    p_0=bbbeta*2*R*R/(2*(bbbeta+R*R-1));
-
-    reshatel(0, 0.01);
 }
 }
