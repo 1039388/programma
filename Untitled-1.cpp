@@ -13,6 +13,7 @@
 #include <boost/math/differentiation/finite_difference.hpp>
 #include <boost/math/quadrature/gauss_kronrod.hpp>
 #include <boost/numeric/odeint.hpp>
+#include <boost/math/interpolators/barycentric_rational.hpp>
 #include <boost/math/complex.hpp>
 #include "gnuplot-iostream.h"
 #include <complex>
@@ -89,17 +90,62 @@ double f(double psi){
 double p(double psi){
     return p_0*f(psi)/(2.0*R*R);
 }
+double Bv_int(double z) {
+    static auto interp = [] {
+        std::vector<double> x, y;
+
+        std::ifstream file(R"(C:\Users\MJ\Desktop\ballon\pole\clean\tblbv_1_2.dat)");
+        if (!file) throw std::runtime_error("Cannot open file");
+
+        double xi, yi, zi;
+        while (file >> xi >> yi >> zi) {
+            x.push_back(xi);
+            y.push_back(yi);
+        }
+
+        return boost::math::interpolators::barycentric_rational<double>(
+            x.data(), y.data(), x.size(), 3
+        );
+    }();
+
+    return interp(z)/R;
+}
+double DBv_int(double z) {
+    static auto interp1 = [] {
+        std::vector<double> x, y;
+
+        std::ifstream file(R"(C:\Users\MJ\Desktop\ballon\pole\clean\tblbvD1_1_2.dat)");
+        if (!file) throw std::runtime_error("Cannot open file");
+
+        double xi, yi, zi;
+        while (file >> xi >> yi >> zi) {
+            x.push_back(xi);
+            y.push_back(yi);
+        }
+
+        return boost::math::interpolators::barycentric_rational<double>(
+            x.data(), y.data(), x.size(), 3
+        );
+    }();
+
+    return interp1(z)/R;
+}
 double B_v(double z){
-    return (1.0+(M-1.0)*pow(sin(M_PI*z/2.0),q))/R;
+    // return (1.0+(M-1.0)*pow(sin(M_PI*z/2.0),q))/R;
+    return Bv_int(z);
 }
 double B_v2(double z){
-    return 1.0/(B_v(z)*B_v(z));
+    // return 1.0/(B_v(z)*B_v(z));
+    return 1.0/(Bv_int(z)*Bv_int(z));
 }
 double d_B_v(double z){
-    return (M-1.0)*q*M_PI/2.0*cos(M_PI*z/2.0)*pow(sin(M_PI*z/2.0),q-1)/R;
+    // return (M-1.0)*q*M_PI/2.0*cos(M_PI*z/2.0)*pow(sin(M_PI*z/2.0),q-1)/R;
+    return DBv_int(z);
 }
 double b_v(double z){
     return (1.0+(M-1.0)*pow(sin(M_PI*z/2.0),q))/R;
+    return Bv_int(z);
+
 }
 double B(double z,double psi ){
     double bb_v=b_v(z);
@@ -417,8 +463,9 @@ void reshatel(int resuis,double dx) // первый аргумент задаё�
 r_0=a_0*RR_w;
 // a_nenorm_0=a_nenorm(0);
 // a2_nenorm_0=a2_nenorm(0);
+std::cout <<"RR_w: " <<RR_w<< std::endl;
 RR_w=RR_w*a(0);
-std::cout <<"RR_w: " <<RR_w*a(0)<< std::endl;
+std::cout <<"RRR_w: " <<RR_w<< std::endl;
     std::cout <<"k: "<< k<<std::endl;
     std::cout <<"M: "<< M<<std::endl;
     std::cout <<"q: "<< q<<std::endl;
@@ -478,7 +525,8 @@ std::cout<<std::endl<<"dzeta: " <<dzeta(w1);
     double x1 = 1;     // End of the interval
      // Initial step size
     // Perform the integration
-    integrate_const( stepper, my_ode_system1, y0, x0, x1, dx, my_observer );// само решение
+    integrate_const( stepper, my_ode_system1, y0, x0, 0.5, 0.005, my_observer );// само решение
+    integrate_const( stepper, my_ode_system1, y0, 0.5, x1, dx, my_observer );// само решение
     bc=dres.back().second+1.0i*dres1.back().second;
     std::cout << "|bc|:"<<std::abs(bc) << "real: " <<std::real(bc)<< " Imag: " <<std::imag(bc)<<" w="<< w1<< ",phase=Pi*"<<phase/M_PI<<"r=" <<std::setprecision(10)<<r<<std::endl;
     std::cout<< "delta="<< std::abs(bc)-std::abs(previous_bc)<<std::endl<<swich1<<std::endl;
@@ -609,6 +657,10 @@ if(resuis==0){
 
 }else if(resuis==6){
      resis="_new_ideal_+";
+}else if(resuis==7){
+     resis="_GDL_ideal";
+}else if(resuis==7){
+     resis="_GDL_res";
 }
 std::string folder1 = "M="+std::to_string(M)+"_"+"q="+std::to_string(q)+"_"+"k="+std::to_string(k)+"_"+"R="+std::to_string(R);
 std::string folder2 =r_w_str+resis;
@@ -796,17 +848,17 @@ std::cout << std::endl<<"sIgma"<< sigma;
 
 int main(){
 
-r=0.95; 
-
+r=0.70; 
+RR_w=2.25;
  phase=M_PI/2;
  r_w_str="st_RR_w"+std::to_string(RR_w);
  
- for(double i=0.250;i<=0.99;i+=0.025){// в виде подобного цикла обычно считаются графики, которые я вам показываю
-    RR_w=1.5;
+ for(double i=0.2;i<=0.99;i+=0.01){// в виде подобного цикла обычно считаются графики, которые я вам показываю
+    RR_w=2.25;
     bbbeta=i;   
     p_0=bbbeta*2.0*R*R/(2.0*(bbbeta+R*R-1.0));
 
-    reshatel(0, 0.003);
+    reshatel(7, 0.001);
 
 }
 }
