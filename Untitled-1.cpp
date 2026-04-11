@@ -5,6 +5,7 @@
 #include <fstream>
 #include <filesystem> 
 #include <string>
+#include <stdexcept>
 #include <boost/math/constants/constants.hpp>
 #include <boost/math/quadrature/trapezoidal.hpp>
 #include <boost/math/quadrature/tanh_sinh.hpp>
@@ -14,26 +15,102 @@
 #include <boost/math/quadrature/gauss_kronrod.hpp>
 #include <boost/numeric/odeint.hpp>
 #include <boost/math/interpolators/barycentric_rational.hpp>
+// #include <boost/math/interpolators/cubic_b_spline.hpp>
+#include <boost/math/interpolators/makima.hpp>
 #include <boost/math/complex.hpp>
 #include "gnuplot-iostream.h"
 #include <complex>
+#include <execution>
+#include <memory> 
+#include <algorithm> 
+#include <vector>
 #define M_PI 3.14159265358979323846
-
 using namespace std::complex_literals;
+typedef std::vector<std::complex<double>> state_type1;
+
+class FileInterpolator {
+private:
+    // std::unique_ptr<boost::math::interpolators::barycentric_rational<double>> interp;
+    using interpolator_type = boost::math::interpolators::makima<std::vector<double>>;
+    std::unique_ptr<interpolator_type> interp;
+    bool ready = false;
+    double z_min = 0.0;
+    double z_max = 1.438794035387821;
+
+public:
+    FileInterpolator() = default;
+
+    // Метод загрузки данных из файла
+    void load(const std::string& filename) {
+        std::vector<double> x, y;
+        std::ifstream file(filename);
+        double xi, yi;
+        
+        if (!file.is_open()) {
+            std::cerr << "open error " << filename << std::endl;
+            return;
+        }
+double z;
+        while (file >> xi >> yi >> z) {
+            x.push_back(xi);
+            y.push_back(yi);
+        }
+        file.close();
+
+        // if (x.size() > 2) {
+        //     // Создаем интерполятор (порядок аппроксимации 3)
+        //     interp = std::make_unique<boost::math::interpolators::barycentric_rational<double>>(
+        //         std::move(x), std::move(y), 3
+        //     );
+        //     ready = true;
+        // }
+        if (x.size() >= 5) {
+            // В конструктор Makima передаются только векторы x и y.
+            interp = std::make_unique<interpolator_type>(std::move(x), std::move(y));
+            ready = true;
+        } else if (x.size() > 0) {
+            std::cerr << "Error: Not enough points for Makima (need at least 5)" << std::endl;
+        }
+    }
+    
+
+    // Получить значение функции в точке z
+    double val(double z) const {
+        if (z < z_min) z = z_min;
+    if (z > z_max) z = z_max;
+
+        return ready ? (*interp)(z) : 0.0;
+    }
+
+    // Получить точную аналитическую производную в точке z
+    double prime(double z) const {
+        return ready ? interp->prime(z) : 0.0;
+    }
+
+    // Проверка, загружен ли файл
+    bool is_ready() const { return ready; }
+};
 
 
 
-
+struct PlasmaModel_A1{
+double B_s_, c, zeta_0, r_0;
+double p_0, w_0;
 
 double pl=1;   //плотность
 double mu=1;
-
-
 std::complex<double> sigma=1.38*10000*pow(10,12)/1.113; // 3-4 множители перевод в СГС 1.38*10000(Ом*см)^-1
 double tau=2.5*pow(10,-14);
 double c_0=3*pow(10,10);
+double m_i=940*pow(10,6)*1.6*pow(0.1,12); // масса покоя протона в эрг
+
+double L=350.0;
+double N_c=pow(10,13);
+double B_v_=3000.0;
 
 
+double RR_w=2.25;
+double a_0=20.0;
 
 double R=1.1;
 double B_s=1.0;
@@ -41,36 +118,29 @@ double M=8.0;
 double q=4.0;
 double k=4.0;
 double bbbeta=0.9;
-double p_0=bbbeta*2*R*R/(2*(bbbeta+R*R-1));
-// double p_0=0.6501;   
-
-double a_nenorm_0=1.0;
-double a2_nenorm_0=1.0;
 
 
-
-double L=350.0;
-
-double RR_w=1.5;
-double a_0=20.0;
-// double r_0=45;
-double r_0=RR_w*a_0;
-// double RR_w=r_0/a_0;
-double N_c=pow(10,13);
-double B_v_=3000.0;
-double B_s_=B_v_*R;
-double m_i=940*pow(10,6)*1.6*pow(0.1,12); // масса покоя протона в эрг
 
 // double w_0=B_s_/(L*sqrt(N_c*m_i/c_0/c_0));
-double w_0=B_v_/(L*sqrt(N_c*1.6726*pow(0.1,24)));
 
-double c=c_0;
-double zeta_0=c/w_0/r_0;
 //608053020
-double tol = 1e-8;
-int max_refine = 15;
+PlasmaModel_A1() { update(); }
 
-std::complex<double> dzeta(std::complex<double> omega) {
+void update() {
+    p_0 = bbbeta * 2.0 * R * R / (2.0 * (bbbeta + R * R - 1.0));
+    B_s_=B_v_*R;
+    w_0=B_v_/(L*sqrt(N_c*1.6726*pow(0.1,24)));
+    r_0=RR_w*a_0;
+    c=c_0;
+    zeta_0=c/w_0/r_0;
+    last_z_ddav = last_z_an = last_z_a2n = -1.0;
+    last_z = last_z_da2 = last_z_pavg = -1.0;
+        // Загрузка файлов и инициализация интерполяторов здесь (один раз!)
+        // load_interpolation_data();
+}
+
+
+std::complex<double> dzeta(std::complex<double> omega) const{
     using namespace std::complex_literals;
 
 std::complex<double> epsilon=-2.2*pow(10,5)+1.0i*6.55*pow(10,18)/w_0/omega;
@@ -80,403 +150,550 @@ std::complex<double> epsilon=-2.2*pow(10,5)+1.0i*6.55*pow(10,18)/w_0/omega;
    return 0.0;
 }
 
-double f(double psi){
+double f (double psi)const{
     if(psi >= 0 && psi <= 1){
         return 1-pow(psi,k);
     }
     else{return 0;
     }
 }
-double p(double psi){
+double p (double psi)const{
     return p_0*f(psi)/(2.0*R*R);
 }
-double Bv_int(double z) {
-    static auto interp = [] {
-        std::vector<double> x, y;
 
-        std::ifstream file(R"(C:\Users\MJ\Desktop\ballon\pole\clean\tblbv_1_2.dat)");
-        if (!file) throw std::runtime_error("Cannot open file");
-
-        double xi, yi, zi;
-        while (file >> xi >> yi >> zi) {
-            x.push_back(xi);
-            y.push_back(yi);
-        }
-
-        return boost::math::interpolators::barycentric_rational<double>(
-            x.data(), y.data(), x.size(), 3
-        );
-    }();
-
-    return interp(z)/R;
-}
-double DBv_int(double z) {
-    static auto interp1 = [] {
-        std::vector<double> x, y;
-
-        std::ifstream file(R"(C:\Users\MJ\Desktop\ballon\pole\clean\tblbvD1_1_2.dat)");
-        if (!file) throw std::runtime_error("Cannot open file");
-
-        double xi, yi, zi;
-        while (file >> xi >> yi >> zi) {
-            x.push_back(xi);
-            y.push_back(yi);
-        }
-
-        return boost::math::interpolators::barycentric_rational<double>(
-            x.data(), y.data(), x.size(), 3
-        );
-    }();
-
-    return interp1(z)/R;
-}
-double B_v(double z){
-    // return (1.0+(M-1.0)*pow(sin(M_PI*z/2.0),q))/R;
-    return Bv_int(z);
-}
-double B_v2(double z){
-    // return 1.0/(B_v(z)*B_v(z));
-    return 1.0/(Bv_int(z)*Bv_int(z));
-}
-double d_B_v(double z){
-    // return (M-1.0)*q*M_PI/2.0*cos(M_PI*z/2.0)*pow(sin(M_PI*z/2.0),q-1)/R;
-    return DBv_int(z);
-}
-double b_v(double z){
+double B_v (double z)const{
     return (1.0+(M-1.0)*pow(sin(M_PI*z/2.0),q))/R;
-    return Bv_int(z);
+    // return Bv_int(z);
+}
+double B_v2 (double z)const{
+    return 1.0/(B_v(z)*B_v(z));
+    // return 1.0/(Bv_int(z)*Bv_int(z));
+}
+double d_B_v (double z)const{
+    return (M-1.0)*q*M_PI/2.0*cos(M_PI*z/2.0)*pow(sin(M_PI*z/2.0),q-1)/R;
+    // return DBv_int(z);
+}
+double b_v (double z)const{
+    return (1.0+(M-1.0)*pow(sin(M_PI*z/2.0),q))/R;
+    // return Bv_int(z);
 
 }
-double B(double z,double psi ){
+double B (double z,double psi )const{
     double bb_v=b_v(z);
+
     if(bb_v>1.0){return bb_v;}
-    else{return sqrt((bb_v*bb_v-p(psi)*2.0)/(1.0-p(psi)*2.0));}
+    else{double pp=p(psi)*2.0;
+        return sqrt((bb_v*bb_v-pp)/(1.0-pp));}
 }
-double a_v(double z){
+double a_v (double z)const{
     return sqrt(2.0/B_v(z));
 } 
-double d_a_v(double z){
+double d_a_v (double z)const{
     return -sqrt(2.0/B_v(z))/(2.0*B_v(z))*d_B_v(z);
 } 
-double dd_a_v(double z){
-    return boost::math::differentiation::finite_difference_derivative(d_a_v,z);
-} 
-double a_nenorm(double z){
-     boost::math::quadrature::gauss_kronrod<double, 31> integrator;
-        auto f_fixed_z= [&](double psi) { return 1.0/B(z, psi); };
-        return sqrt(2.0*integrator.integrate(f_fixed_z, 0,1));
+mutable double last_z_ddav = -1.0, last_ddav_val = 0.0;
+double dd_a_v(double z) const {
+        if (std::abs(z - last_z_ddav) < 1e-12) return last_ddav_val;
+        auto func = [this](double x) { return this->d_a_v(x); };
+        last_ddav_val = boost::math::differentiation::finite_difference_derivative(func, z);
+        last_z_ddav = z;
+        return last_ddav_val;
+    }
+mutable double last_z_an = -1.0;
+mutable double last_an_val = 0.0;
+double a_nenorm(double z) const {
+    if (std::abs(z - last_z_an) < 1e-12) return last_an_val;
+
+    boost::math::quadrature::gauss_kronrod<double, 31> integrator;
+    auto f_fixed_z = [this, z](double psi) { return 1.0 / B(z, psi); };
+    last_an_val = sqrt(2.0 * integrator.integrate(f_fixed_z, 0, 1));
+    last_z_an = z;
+    return last_an_val;
 }
-double a(double z){
-    return a_nenorm(z)/a_nenorm_0;
+double a (double z)const{
+    return a_nenorm(z);
 }
-double a2_nenorm(double z){
-     boost::math::quadrature::gauss_kronrod<double, 31> integrator;
-        auto f_fixed_z= [&](double psi) { return 1.0/B(z, psi); };
-        return 2.0*integrator.integrate(f_fixed_z, 0,1);
+mutable double last_z_a2n = -1.0, last_a2n_val = 0.0;
+double a2_nenorm(double z) const {
+        if (std::abs(z - last_z_a2n) < 1e-12) return last_a2n_val;
+        boost::math::quadrature::gauss_kronrod<double, 31> integrator;
+        auto f_fixed_z = [this, z](double psi) { return 1.0 / B(z, psi); };
+        last_a2n_val = 2.0 * integrator.integrate(f_fixed_z, 0, 1);
+        last_z_a2n = z;
+        return last_a2n_val;
+    }
+double a2 (double z)const{
+    return a2_nenorm(z);
+}
+mutable double last_z = -1.0;
+mutable double last_da = 0.0;
+double d_a (double z)const{
+    if (std::abs(z - last_z) < 1e-12) return last_da; // Возвращаем кэш
+    auto func = [this](double x) { return this->a(x); };
+    last_z = z;
+    last_da = boost::math::differentiation::finite_difference_derivative(func, z);
+    return last_da;
 }
 
-double a2(double z){
-    return a2_nenorm(z)/a2_nenorm_0;
+mutable double last_z_da2 = -1.0;
+mutable double last_da2_val = 0.0;
+double d_a2(double z) const {
+    if (std::abs(z - last_z_da2) < 1e-12) return last_da2_val; 
+    
+    auto func = [this](double x) { return this->a2(x); };
+    last_da2_val = boost::math::differentiation::finite_difference_derivative(func, z);
+    last_z_da2 = z;
+    return last_da2_val;
 }
-double d_a(double z){
-    return boost::math::differentiation::finite_difference_derivative(a,z);
-}
-double d_a2(double z){
-    return boost::math::differentiation::finite_difference_derivative(a2,z);
-}
-double p_sred(double z,double psi){
+double p_sred (double z,double psi)const{
     return p(psi)*(1.0-B(z,psi)/B_s);
 }
-double p_avg(double z){
-     boost::math::quadrature::gauss_kronrod<double, 31> integrator;
-            auto f_fixed_z= [&](double psi) { return p_sred(z,psi)/B(z, psi); };
-    double res= 2.0/(a2(z))*integrator.integrate(f_fixed_z,0,1.0);
-    if (res<0.0
-    ){return 0;}else{return res;};
-}
-double right_func1(double z){//не используется
-    return 2.0*(p_avg(z)/(B_v(z)*B_v(z))*dd_a_v(z)/a_v(z));
-}
-double right_func2(double z){//не используется
-    return (0.5*pow((d_B_v(z)/B_v(z)+d_a2(z)/a2(z)),2)*(1.0-p_avg(z)/(B_v(z)*B_v(z))));
-}
-double right_func(double z){// в решении уравнения используется только эта функция
-    return (2.0*(p_avg(z)/(B_v(z)*B_v(z))*dd_a_v(z)/a_v(z))+0.5*pow((d_B_v(z)/B_v(z)+d_a2(z)/a2(z)),2)*(1.0-p_avg(z)/(B_v(z)*B_v(z))));
-}
-double w2()//теперь не используетсяы
-{
-    boost::math::quadrature::gauss_kronrod<double, 81> integrator;
-    // return (integrator.integrate(right_func1,-1.0,1.0)+integrator.integrate(right_func2,-1.0,1.0))/integrator.integrate(B_v2,-1.0,1.0)/pl;
-    return (integrator.integrate(right_func,-1.0,1.0)/integrator.integrate(B_v2,-1.0,1.0)/pl);
-
-}
-double r_w(double z){
-    return 1.0;
-}
-std::string r_w_str = "r_w_1.0000000001_a(z)";
-double lambda(double z){
-   // return INFINITY;
-    return (r_w(z)*r_w(z)*RR_w*RR_w+a(z)*a(z))/(r_w(z)*r_w(z)*RR_w*RR_w-a(z)*a(z));
-}
-std::complex<double> lambda_0(double z, std::complex<double> omega)// не нормированная, уже не используется
-{
-    using namespace std::complex_literals;
-    return ((omega*r_w(z)/c+1.0i*dzeta(omega))  *r_w(z)*r_w(z)+(omega*r_w(z)/c-1.0i*dzeta(omega))*a2(z))
-    /((omega*r_w(z)/c+1.0i*dzeta(omega))*r_w(z)*r_w(z)-(omega*r_w(z)/c-1.0i*dzeta(omega))*a2(z));
-}
-std::complex<double> lambda_1(double z, std::complex<double> omega)// нормиованная
-{
-    using namespace std::complex_literals;
-    return ((omega*r_w(z)+1.0i*zeta_0*dzeta(omega))*pow(RR_w*r_w(z),2)+(omega*r_w(z)-1.0i*zeta_0*dzeta(omega))*a2(z))
-    /((omega*r_w(z)+1.0i*zeta_0*dzeta(omega))*pow(RR_w*r_w(z),2)-(omega*r_w(z)-1.0i*zeta_0*dzeta(omega))*a2(z));
-}
-
-double w_2() {// была нужна раньше 
-
-    Gnuplot gp; // Creates a Gnuplot instance
-   std::vector<std::pair<double, double>> w_b,w_b1,w_b2,w_b3,nol_b;
-   std::vector<std::pair<double, double>> plot_data1,plot_data2,plot_data3,plot_data4,plot_data5,plot_data6;
-   int nomer=0;
-   while(p_0<0.9999){
-
-    //  gp << "set terminal qt 1 title 'B(z,1)'\n";    gp << "plot '-' with lines\n";    gp.send1d(plot_data2);
-    // gp << "set terminal qt 2 title 'a_v(z)'\n";    gp << "plot '-' with lines\n";    gp.send1d(plot_data3);
-    // gp << "set terminal qt 0 title 'a(z)'\n"; gp << "plot '-' with lines\n";  gp.send1d(plot_data4);
-    // gp << "set terminal qt 4 title 'B_v'\n";    gp << "plot '-' with lines\n";    gp.send1d(plot_data5);
-  //  gp << "set terminal qt 5 title 'OTLADKA'\n";    gp << "plot '-' with lines\n";    gp.send1d(plot_data6);
-   //gp << "pause -1\n"; 
-    // Keep windows open
-    k=1;
-    double w=w2();
-    double beta=p_0*(R*R-1)/(R*R-p_0) ;
-//   std::cout << std::endl<<"w^2="<< w << std::endl;
-//   std::cout << std::endl<< "beta=" << beta << std::endl;
-    w_b.push_back({beta,w});
-
-    k=2;
-     w=w2();
-    w_b1.push_back({beta,w});
-    k=4;
-     w=w2();
-    w_b2.push_back({beta,w});
-    k=608053020;
-     w=w2();
-    w_b3.push_back({beta,w});
-
-    nol_b.push_back({beta,0});
-
-    nomer++;
-    p_0=p_0+0.01;
-    std::cout<<beta<<std::endl;
-}
- for (double z = -1.1; z <= 1.11; z += 0.01) {
-     //   plot_data1.push_back({z,right_func(x)});
-        //  plot_data2.push_back({z,B(z,0)});
-        //  plot_data3.push_back({z,a_v(z)});
-        // plot_data4.push_back({z,a(z)});
-        plot_data5.push_back({z,B_v(z)});
-        plot_data4.push_back({z,B(z,0)});
-      //   plot_data6.push_back({x,1/2*pow((d_B_v(x)/B_v(x)+d_a2(x)/a2(x)),2)*(1-p_avg(x)/(B_v(x)*B_v(x)))});
-        // plot_data6.push_back({z,right_func2(z)+right_func1(z)});
- }
-//gp << "set terminal qt\n";
-
-//   gp << "set terminal wxt 3 title 'B_v(z)'\n"; gp << "plot '-' with lines\n"; gp.send1d(plot_data5);
- //gp << "set terminal wxt 1 title 'B'\n"; gp << "plot '-' with lines\n";  gp.send1d(plot_data4);
-
-   gp << "set terminal wxt 0 title 'w^2(β)'\n";
-    gp << "set xlabel 'beta'\n";
-    gp << "set ylabel 'w^2'\n";
-  //gp << "set yrange [-0.1:0.1]\n"; 
-    //gp << "set xrange [0:1]\n";         // Set the Y-axis limit
-gp << "set xtics 0.1\n";           // Set major tic spacing on X-axis
-gp << "set mxtics 5\n";            // Set number of minor tic intervals on X-axis
-gp << "set grid xtics mxtics\n";   // Enable grid for major and minor X-tics
-gp << "set key outside right top\n";  // Position legend outside the plot
-gp << "set border linewidth 1.5\n";       // Жирная рамка
-gp << "set style line 1 linewidth 2\n"; // Стиль для первой линии
-gp << "set style line 2 linewidth 5\n"; // Стиль для второй линии
-//gp<<"set border lw 2\n"; gp <<"set linestyle lw 2 "; 
-gp << "plot '-' with lines linewidth 2 title 'k=1', '-' with lines linewidth 2 title 'k=2', '-' with lines linewidth 2 title 'k=4', '-' with lines linewidth 2 title 'k=inf', 0 with lines linewidth 2 title '0'\n";
-gp.send1d(w_b);
-gp.send1d(w_b1);
-gp.send1d(w_b2);
-gp.send1d(w_b3);
-return 0;
-}
-// Define the state type: a vector of two elements (y0, y1)
-
-typedef std::array<double, 2> state_type;
-double w=1;
-std::complex<double> w1=-1.0i*sqrt(0.0137);// эти строки использовались раннее
-// Parameters of your ODE: q(x)y'' + p(x)y' + d(x)y + a(x) = 0
-// Define your coefficient functions here.
-double q1(double z) {
-    return lambda(z)+1.0-2.0*p_avg(z)/(B_v(z)*B_v(z));
-}
-std::complex<double> q2(double z) {
-    return lambda_1(z,w1)+1.0-2.0*p_avg(z)/(B_v(z)*B_v(z));
-}
-double p1(double z){
-    auto f = [](double z1){
-         return lambda(z1)
-               - 2.0*p_avg(z1)/(B_v(z1)*B_v(z1));
-    };
-    return boost::math::differentiation::finite_difference_derivative(f, z);
-}
-std::complex<double> p2(double z)
-{
-    auto f_re = [](double z1) {
-        return std::real(lambda_1(z1, w1)
-               - 2.0*p_avg(z1)/(B_v(z1)*B_v(z1)));
-    };
-
-    auto f_im = [](double z1) {
-        return std::imag(lambda_1(z1, w1));
-    };
-
-    double dre = boost::math::differentiation::finite_difference_derivative(f_re, z);
-    double dim = boost::math::differentiation::finite_difference_derivative(f_im, z);
-
-        return std::complex<double>(dre, dim);
-}
-double d1(double z) {
-    auto f=[](double z1){return -((d_B_v(z1)/B_v(z1)+d_a2(z1)/a2(z1))*(1.0-p_avg(z1)/(B_v(z1)*B_v(z1))));};
-    return boost::math::differentiation::finite_difference_derivative(f,z);
-}
-double a1(double z) {
-    return w*pl/(B_v(z)*B_v(z))-right_func(z);
-}
-std::complex<double> a_2(double z){
-        return w1*w1*pl/(B_v(z)*B_v(z))-right_func(z);
-}
-// Define the ODE system (the RHS of our system of equations)
-void my_ode_system( const state_type &y, state_type &dydx, double x ) {
-    dydx[0] = y[1]; // y0' = y1
-    dydx[1] = -( p1(x) * y[1] + d1(x) * y[0] + a1(x) ) / q1(x); // y1' = -(...)/q(x)
-}
-double Qfunc(double z){
-    return d_B_v(z)/B_v(z)+d_a2(z)/a2(z);
-}
-double z_s(){
-    return 2.0/M_PI*std::asin(pow((R-1)/(M-1),1/q));
-}
-double d_phi_z_s(double phi_z_s,double delta){
-return (Qfunc(z_s()+delta)-Qfunc(z_s()-delta))/(lambda(z_s())+1)*phi_z_s;
-}
-
-void ideal(){//использовалось раннее
-    double Z_s=z_s();
-    double phi_z_s;
-    std::vector<std::pair<double,double>> res,res1,dres,dres1,magf,magf_v;
-        Gnuplot gp;
-
-    double delta=0.001/100;
-    double beta=p_0*(R*R-1)/(R*R-p_0);
-    std::cout<< beta<<std::endl;
-    auto my_observer=[&]( const state_type &y, const double x ) {
-    res.push_back(std::make_pair(x,y[0]));
-    dres.push_back(std::make_pair(x,y[1]));
-    magf.push_back(std::make_pair(x,B(x,0.2)));
-    magf_v.push_back(std::make_pair(x,B_v(x)));
-    if(Z_s<res.back().first&&Z_s<res[res.size()-2].first){
-        phi_z_s=y[0];
+mutable double last_z_pavg = -1.0, last_pavg_val = 0.0;
+double p_avg(double z) const {
+        if (std::abs(z - last_z_pavg) < 1e-12) return last_pavg_val;
+        boost::math::quadrature::gauss_kronrod<double, 31> integrator;
+        auto f_fixed_z = [this, z](double psi) { return p_sred(z, psi) / B(z, psi); };
+        double res = 2.0 / (a2(z)) * integrator.integrate(f_fixed_z, 0, 1.0);
+        last_pavg_val = (res < 0.0) ? 0.0 : res;
+        last_z_pavg = z;
+        return last_pavg_val;
     }
-    };
-    auto my_observer1=[&]( const state_type &y, const double x ) {
-    res1.push_back(std::make_pair(x,y[0]));
-    dres1.push_back(std::make_pair(x,y[1]));
-    };
+};
+struct PlasmaModel_A1_int{
+double B_s_, c, zeta_0, r_0;
+double p_0, w_0;
+
+double pl=1;   //плотность
+double mu=1;
+std::complex<double> sigma=1.38*10000*pow(10,12)/1.113; // 3-4 множители перевод в СГС 1.38*10000(Ом*см)^-1
+double tau=2.5*pow(10,-14);
+double c_0=3*pow(10,10);
+double m_i=940*pow(10,6)*1.6*pow(0.1,12); // масса покоя протона в эрг
+
+double L=350.0;
+double N_c=pow(10,13);
+double B_v_=3000.0;
+
+
+double RR_w=2.25;
+double a_0=20.0;
+
+double R=1.1;
+double B_s=1.0;
+double M=8.0;
+double q=4.0;
+double k=4.0;
+double bbbeta=0.9;
+
+
+
+// double w_0=B_s_/(L*sqrt(N_c*m_i/c_0/c_0));
+
+//608053020
+
+FileInterpolator Bv_data;
+FileInterpolator dBv_data;
+FileInterpolator ddav_av_data;
+FileInterpolator dBv_Bv_data;
+
+std::string papka_int = R"(C:\Users\MJ\Desktop\ballon\pole\clean\)";
+std::string B_v_str="tblbv_1_2.dat";
+std::string dB_v_str="tblbvD1_1_2.dat";
+std::string dB_v_Bv_str="tblAvD1Av_1_2.dat";
+std::string ddav_av_str="tblAvD2Av_1_2.dat";
+
+PlasmaModel_A1_int() { 
+    Bv_data.load(papka_int+B_v_str);
+    dBv_data.load(papka_int+dB_v_str);
+    ddav_av_data.load(papka_int+ddav_av_str);
+    dBv_Bv_data.load(papka_int+dB_v_Bv_str);
+    update(); 
+}
+
+void update() {
+    p_0 = bbbeta * 2.0 * R * R / (2.0 * (bbbeta + R * R - 1.0));
+    B_s_=B_v_*R;
+    w_0=B_v_/(L*sqrt(N_c*1.6726*pow(0.1,24)));
+    r_0=RR_w*a_0;
+    c=c_0;
+    zeta_0=c/w_0/r_0;
+    last_z_ddav = last_z_an = last_z_a2n = -1.0;
+    last_z = last_z_da2 = last_z_pavg = -1.0;
+        // load_interpolation_data();
+}
+
+
+std::complex<double> dzeta(std::complex<double> omega) const{
+    using namespace std::complex_literals;
+
+std::complex<double> epsilon=-2.2*pow(10,5)+1.0i*6.55*pow(10,18)/w_0/omega;
+//  return ((1.0 - 1.0i)* std::sqrt(omega * mu /(8 * M_PI * sigma)));
+//  return std::sqrt(mu /(1.0+1.0i*4.0 * M_PI * sigma/(1.0-1.0i*omega*tau)));
+// return sqrt(mu/epsilon);
+   return 0.0;
+}
+
+double f (double psi)const{
+    if(psi >= 0 && psi <= 1){
+        return 1-pow(psi,k);
+    }
+    else{return 0;
+    }
+}
+double p (double psi)const{
+    return p_0*f(psi)/(2.0*R*R);
+}
+
+double B_v (double z)const{
+    if (Bv_data.is_ready()) {
+            return Bv_data.val(z) / R; 
+        }else{throw std::runtime_error("Error: Bv_data is not ready. Check file: " + papka_int + B_v_str);}
+    // return (1.0+(M-1.0)*pow(sin(M_PI*z/2.0),q))/R;
+    // return Bv_int(z);
+}
+double B_v2 (double z)const{
+    double bv=B_v(z);
+    return 1.0/(bv*bv);
+}
+double d_B_v (double z)const{
+    if (dBv_data.is_ready()) {
+            return dBv_data.val(z) / R; 
+        }else{throw std::runtime_error("Error: dBv_data is not ready. Check file: " + papka_int + dB_v_str);}
+}
+double b_v (double z)const{
     
-    dres.push_back(std::make_pair(1.0,1.0));
+    return B_v(z);
 
-    while(fabs(dres.back().second)>delta){
-    w+=0.01/50;
-   res.clear();
-   res1.clear();
-   dres.clear();
-   dres1.clear();
-    boost::numeric::odeint::runge_kutta_dopri5<state_type> stepper;
-    // Initial conditions: {y(x0), y'(x0)}
-    state_type y0 = { 1, 0};
-    // Integration range and initial step size
-    double x0 = 0;   // Start of the interval
-    double x1 = 1.0;     // End of the interval
-    double dx = 0.001; // Initial step size
-    // Perform the integration
-    integrate_const( stepper, my_ode_system, y0, x0, x1, dx, my_observer );
-       y0 = { 1, 0};
-      dx=-dx;     // End of the interval
-    integrate_const( stepper, my_ode_system, y0, x0, -1.0, -dx, my_observer1 );
-    std::cout<<"w^2: " <<w<< " phi'="<<dres.back().second <<std::endl;
 }
-std::cout<<std::endl<<"beta: " <<beta<<std::endl;
-std::cout<<"w^2: " <<w<< std::endl;
-std::cout<<"z_s: " <<Z_s<< std::endl;
-std::cout<<"phi(z_s): " <<phi_z_s<< std::endl;
-std::cout<<"[d_phi]|z_s: " <<d_phi_z_s(phi_z_s,0.05)<< std::endl;
+double B (double z,double psi )const{
+    double bb_v=b_v(z);
 
+    if(bb_v>1.0){return bb_v;}
+    else{double pp=p(psi)*2.0;
+        return sqrt((bb_v*bb_v-pp)/(1.0-pp));}
+}
+double a_v (double z)const{
+    return sqrt(2.0/B_v(z));
+} 
+double d_a_v (double z)const{
+    return -sqrt(2.0/B_v(z))/(2.0*B_v(z))*d_B_v(z);
+} 
+mutable double last_z_ddav = -1.0, last_ddav_val = 0.0;
+double dd_a_v(double z) const {
+        if (std::abs(z - last_z_ddav) < 1e-12) return last_ddav_val;
+        auto func = [this](double x) { return this->d_a_v(x); };
+        last_ddav_val = boost::math::differentiation::finite_difference_derivative(func, z);
+        last_z_ddav = z;
+        return last_ddav_val;
+    }
+mutable double last_z_an = -1.0;
+mutable double last_an_val = 0.0;
+double a_nenorm(double z) const {
+    if (std::abs(z - last_z_an) < 1e-12) return last_an_val;
+
+    boost::math::quadrature::gauss_kronrod<double, 31> integrator;
+    auto f_fixed_z = [this, z](double psi) { return 1.0 / B(z, psi); };
+    last_an_val = sqrt(2.0 * integrator.integrate(f_fixed_z, 0, 1));
+    last_z_an = z;
+    return last_an_val;
+}
+double a (double z)const{
+    return a_nenorm(z);
+}
+mutable double last_z_a2n = -1.0, last_a2n_val = 0.0;
+double a2_nenorm(double z) const {
+        if (std::abs(z - last_z_a2n) < 1e-12) return last_a2n_val;
+        boost::math::quadrature::gauss_kronrod<double, 31> integrator;
+        auto f_fixed_z = [this, z](double psi) { return 1.0 / B(z, psi); };
+        last_a2n_val = 2.0 * integrator.integrate(f_fixed_z, 0, 1);
+        last_z_a2n = z;
+        return last_a2n_val;
+    }
+double a2 (double z)const{
+    return a2_nenorm(z);
+}
+mutable double last_z = -1.0;
+mutable double last_da = 0.0;
+double d_a (double z)const{
+    if (std::abs(z - last_z) < 1e-12) return last_da; // Возвращаем кэш
+    auto func = [this](double x) { return this->a(x); };
+    last_z = z;
+    last_da = boost::math::differentiation::finite_difference_derivative(func, z);
+    return last_da;
+}
+
+mutable double last_z_da2 = -1.0;
+mutable double last_da2_val = 0.0;
+double d_a2(double z) const {
+    if (std::abs(z - last_z_da2) < 1e-12) return last_da2_val; 
     
-gp << "set terminal wxt 1  title 'y'\n";  ; 
- gp << "plot '-' with lines, '-' with lines\n";  gp.send1d(res); gp.send1d(res1);
+    auto func = [this](double x) { return this->a2(x); };
+    last_da2_val = boost::math::differentiation::finite_difference_derivative(func, z);
+    last_z_da2 = z;
+    return last_da2_val;
+}
+double p_sred (double z,double psi)const{
+    return p(psi)*(1.0-B(z,psi)/B_s);
+}
+mutable double last_z_pavg = -1.0, last_pavg_val = 0.0;
+double p_avg(double z) const {
+        if (std::abs(z - last_z_pavg) < 1e-12) return last_pavg_val;
+        boost::math::quadrature::gauss_kronrod<double, 31> integrator;
+        auto f_fixed_z = [this, z](double psi) { return p_sred(z, psi) / B(z, psi); };
+        double res = 2.0 / (a2(z)) * integrator.integrate(f_fixed_z, 0, 1.0);
+        last_pavg_val = (res < 0.0) ? 0.0 : res;
+        last_z_pavg = z;
+        return last_pavg_val;
+    }
+    double ddav_av(double z) const{
+ if (ddav_av_data.is_ready()) {
+            return ddav_av_data.val(z); 
+        }else{throw std::runtime_error("Error: ddav_av_data is not ready. Check file: " + papka_int + ddav_av_str);}
+    }
+    double dBv_bv(double z) const{
+         if (dBv_Bv_data.is_ready()) {
+            return -2.0*dBv_Bv_data.val(z); 
+        }else{throw std::runtime_error("Error: dBv_Bv_data is not ready. Check file: " + papka_int + dB_v_Bv_str);}
+    }
+};
 
-   gp << "set terminal wxt 2  title 'dy'\n";  ; 
-gp << "plot '-' with lines\n";  gp.send1d(dres);
-//    gp << "set terminal wxt 3  title 'B'\n";  ; 
-// gp << "plot '-' with lines\n";  gp.send1d(magf);
-//    gp << "set terminal wxt 4  title 'B'\n";  ; 
-// gp << "plot '-' with lines\n";  gp.send1d(magf_v);
-}
+struct Wall_St {
+    // double RR_w = 2.25;
 
-std::complex<double> q11(double z) {
-    return 1;
-}
-double p11(double z) {
-    return 0;
-}
-double d11(double z) {
-    return 1;
-}
-double a11(double z) {
-    return 0;
-}
-typedef std::vector<std::complex<double>> state_type1;
-// Define the ODE system (the RHS of our system of equations)
-void my_ode_system1( const state_type1 &y, state_type1 &dydx, double x ) { //решаемое уравнение
-    dydx[0] = y[1]; // y0' = y1
-    dydx[1] = -( p2(x) * y[1] + d1(x) * y[0] + a_2(x) ) / q2(x); 
-}
-// std::pair<double,double> in_app(){
-// return 0;
-// }
-bool compareSecond( std::pair<double, double> a,  std::pair<double, double> b) {
-    return abs(a.second) < abs(b.second);
-}
+    double r_w(double z) const {
+        return 1.0; 
+    }
 
-//начальные приближения
-double r=0.11; 
+};
+template <class Model>
+struct Wall_Pr {
+    const Model& m; 
+    
+    Wall_Pr(const Model& model) : m(model) {}
 
-double phase=M_PI/2;
+    double r_w(double z) const {
+        return m.a(z); 
+    }
 
-void reshatel(int resuis,double dx) // первый аргумент задаёт название папки для сохранения данных, второй шаг для решения уравнения
-{
-r_0=a_0*RR_w;
-// a_nenorm_0=a_nenorm(0);
-// a2_nenorm_0=a2_nenorm(0);
-std::cout <<"RR_w: " <<RR_w<< std::endl;
-RR_w=RR_w*a(0);
-std::cout <<"RRR_w: " <<RR_w<< std::endl;
-    std::cout <<"k: "<< k<<std::endl;
-    std::cout <<"M: "<< M<<std::endl;
-    std::cout <<"q: "<< q<<std::endl;
-    std::cout <<"a(0): "<< a(0)<<std::endl;
-    std::cout <<"r_w(0): "<<r_w(0)<<std::endl;
-    std::cout <<"w_0: "<< w_0<<std::endl;
-    std::cout <<"zeta_0: "<< zeta_0<<std::endl;
-    std::cout <<"Lambda : "<< lambda(0)<<std::endl;
-    double Z_s=z_s();
-        double phi_z_s;
-double delta=0.00001; // задаёт точность зануления на правой границе 
+};
+
+
+template <class Model, class Wall>
+struct LoDestroEquation {
+    const Model& m;    
+    const Wall& w;    
+ std::complex<double> w1; 
+ double a2_0_cached;
+    mutable double last_z = -1e18;
+    mutable std::complex<double> cached_q2, cached_p2, cached_a2;
+    mutable double cached_d1;
+    void set_omega(std::complex<double> new_w) {
+        if (this->w1 == new_w) return; 
+        this->w1 = new_w;
+        this->last_z = -1e18; 
+    }
+    LoDestroEquation(const Model& model, const Wall& wall, std::complex<double> omega) 
+        : m(model), w(wall), w1(omega), a2_0_cached(model.a2(0)) {}
+
+    std::complex<double> lambda_1(double z) const {
+        using namespace std::complex_literals;
+        
+        double rw = w.r_w(z);
+        double a2_val = m.a2(z);
+        
+        double rw_eff = m.RR_w * rw; 
+        double rw_eff2 = rw_eff * rw_eff;
+        
+        std::complex<double> term_plus = w1 * rw + 1.0i * m.zeta_0 * m.dzeta(w1);
+        std::complex<double> term_minus = w1 * rw - 1.0i * m.zeta_0 * m.dzeta(w1);
+
+        std::complex<double> numerator = term_plus * rw_eff2*a2_0_cached + term_minus * a2_val;
+        std::complex<double> denominator = term_plus * rw_eff2*a2_0_cached - term_minus * a2_val;
+
+        return numerator / denominator;
+    }
+double lambda(double z){
+    return (w.r_w(z)*w.r_w(z)*m.RR_w*m.RR_w*a2_0_cached+m.a2(z))/(w.r_w(z)*w.r_w(z)*m.RR_w*m.RR_w*a2_0_cached-m.a2(z));
+}
+double right_func(double z) const {
+        double bv = m.B_v(z);
+        double av = m.a_v(z);
+        double pavg = m.p_avg(z);
+        double dbv = m.d_B_v(z);
+        double da2 = m.d_a2(z);
+        double a2 = m.a2(z);
+        double ddav = m.dd_a_v(z);
+
+        double term1 = 2.0 * (pavg / (bv * bv) * ddav / av);
+        double term2 = 0.5 * std::pow((dbv / bv + da2 / a2), 2) * (1.0 - pavg / (bv * bv));
+
+        return (term1 + term2);
+    }
+    // Обновление всех коэффициентов уравнения для конкретного z
+    void update_cache(double z) const {
+        if (std::abs(z - last_z) < 1e-13) return;
+
+        double bv = m.B_v(z);
+        double inv_bv2 = 1.0 / (bv * bv);
+        double p_avg_val = m.p_avg(z);
+
+        cached_q2 = lambda_1(z) + 1.0 - 2.0 * p_avg_val * inv_bv2;
+
+        auto f_p2_re = [this](double z1) {
+            double b = m.B_v(z1);
+            return std::real(lambda_1(z1) - 2.0 * m.p_avg(z1) / (b * b));
+        };
+        auto f_p2_im = [this](double z1) {
+            return std::imag(lambda_1(z1));
+        };
+
+        cached_p2 = std::complex<double>(boost::math::differentiation::finite_difference_derivative(f_p2_re, z), boost::math::differentiation::finite_difference_derivative(f_p2_im, z));
+
+ 
+        auto f_d1 = [this](double z1) {
+            double b = m.B_v(z1);
+            double a2 = m.a2(z1);
+            return -((m.d_B_v(z1) / b + m.d_a2(z1) / a2) * (1.0 - m.p_avg(z1) / (b * b)));
+        };
+        cached_d1 = boost::math::differentiation::finite_difference_derivative(f_d1, z);
+
+        // 5. Свободный член a2 (правая часть)
+        cached_a2 = w1 * w1 * m.pl * inv_bv2 - right_func(z);
+
+        last_z = z;
+    }
+
+     
+    void operator()(const state_type1 &y, state_type1 &dydx, double x) const {
+        update_cache(x);
+        
+        dydx[0] = y[1]; // y' = v
+        // y'' = -(p2*y' + d1*y + a2) / q2
+        dydx[1] = -(cached_p2 * y[1] + cached_d1 * y[0] + cached_a2) / cached_q2;
+    }
+};
+
+template <class Model, class Wall>
+struct LoDestroEquation_int2 {
+    const Model& m;    
+    const Wall& w;    
+ std::complex<double> w1; 
+ double a2_0_cached;
+    mutable double last_z = -1e18;
+    mutable std::complex<double> cached_q2, cached_p2, cached_a2;
+    mutable double cached_d1;
+    void set_omega(std::complex<double> new_w) {
+        if (this->w1 == new_w) return; 
+        this->w1 = new_w;
+        this->last_z = -1e18; 
+    }
+    LoDestroEquation_int2(const Model& model, const Wall& wall, std::complex<double> omega) 
+        : m(model), w(wall), w1(omega), a2_0_cached(model.a2(0)) {}
+
+    std::complex<double> lambda_1(double z) const {
+        using namespace std::complex_literals;
+        
+        double rw = w.r_w(z);
+        double a2_val = m.a2(z);
+        
+        double rw_eff = m.RR_w * rw; 
+        double rw_eff2 = rw_eff * rw_eff;
+        
+        std::complex<double> term_plus = w1 * rw + 1.0i * m.zeta_0 * m.dzeta(w1);
+        std::complex<double> term_minus = w1 * rw - 1.0i * m.zeta_0 * m.dzeta(w1);
+
+        std::complex<double> numerator = term_plus * rw_eff2*a2_0_cached + term_minus * a2_val;
+        std::complex<double> denominator = term_plus * rw_eff2*a2_0_cached - term_minus * a2_val;
+
+        return numerator / denominator;
+    }
+double lambda(double z){
+    return (w.r_w(z)*w.r_w(z)*m.RR_w*m.RR_w*a2_0_cached+m.a2(z))/(w.r_w(z)*w.r_w(z)*m.RR_w*m.RR_w*a2_0_cached-m.a2(z));
+}
+double right_func(double z) const {
+        double bv2 = m.B_v2(z);
+        double ddav_av = m.ddav_av(z);
+        double pavg = m.p_avg(z);
+        double da2 = m.d_a2(z);
+        double a2 = m.a2(z);
+        double dbv_bv=m.dBv_bv(z);
+
+        double term1 = 2.0 * (pavg / (bv2) * ddav_av);
+        double term2 = 0.5 * std::pow((dbv_bv+ da2 / a2), 2) * (1.0 - pavg / (bv2));
+
+        return (term1 + term2);
+    }
+    // Обновление всех коэффициентов уравнения для конкретного z
+    void update_cache(double z) const {
+        if (std::abs(z - last_z) < 1e-13) return;
+
+        double bv2 = m.B_v2(z);
+        // double inv_bv2 = 1.0 / (bv * bv);
+        double p_avg_val = m.p_avg(z);
+
+        cached_q2 = lambda_1(z) + 1.0 - 2.0 * p_avg_val * bv2;
+
+        auto f_p2_re = [this](double z1) {
+            double bv2 = m.B_v2(z1);
+            return std::real(lambda_1(z1) - 2.0 * m.p_avg(z1)*bv2);
+        };
+        auto f_p2_im = [this](double z1) {
+            return std::imag(lambda_1(z1));
+        };
+
+        cached_p2 = std::complex<double>(boost::math::differentiation::finite_difference_derivative(f_p2_re, z), boost::math::differentiation::finite_difference_derivative(f_p2_im, z));
+
+ 
+        auto f_d1 = [this](double z1) {
+            double bv2 = m.B_v2(z1);
+            double dbv_bv = m.dBv_bv(z1);
+            double a2 = m.a2(z1);
+            return -((dbv_bv + m.d_a2(z1) / a2) * (1.0 - m.p_avg(z1)*bv2));
+        };
+        cached_d1 = boost::math::differentiation::finite_difference_derivative(f_d1, z);
+
+        // 5. Свободный член a2 (правая часть)
+        cached_a2 = w1 * w1 * m.pl * bv2 - right_func(z);
+
+        last_z = z;
+    }
+
+     
+    void operator()(const state_type1 &y, state_type1 &dydx, double x) const {
+        update_cache(x);
+        
+        dydx[0] = y[1]; // y' = v
+        // y'' = -(p2*y' + d1*y + a2) / q2
+        dydx[1] = -(cached_p2 * y[1] + cached_d1 * y[0] + cached_a2) / cached_q2;
+    }
+};
+
+
+bool compareSecond(const std::pair<double, double>& a, const std::pair<double, double>& b) {
+    return std::abs(a.second) < std::abs(b.second);
+}
+double r=0.11;
+double phase=M_PI/2.1;
+template <template<class, class> class EquationType, class Model, class Wall>
+void reshatel(Model& model, Wall& wall, int resuis, double dx) {
+    using namespace std::complex_literals;
+    
+    std::complex<double> w1=r*exp(1.0i*phase);
+    model.update();
+    EquationType<Model, Wall> equation(model, wall, w1);
+    std::cout <<"RR_w: " <<model.RR_w<< std::endl;
+    std::cout <<"k: "<< model.k<<std::endl;
+    std::cout <<"M: "<< model.M<<std::endl;
+    std::cout <<"q: "<< model.q<<std::endl;
+    std::cout <<"a(0): "<< model.a(0)<<std::endl;
+    std::cout <<"r_w(0): "<<wall.r_w(0)<<std::endl;
+    std::cout <<"w_0: "<< model.w_0<<std::endl;
+    std::cout <<"zeta_0: "<< model.zeta_0<<std::endl;
+    std::cout <<"Lambda : "<< equation.lambda(0)<<std::endl;
+    std::cout <<"Lambda_1 : "<< equation.lambda_1(0)<<std::endl;
+    // double Z_s=z_s();
+    //     double phi_z_s;
+double delta=0.00000000; // задаёт точность зануления на правой границе 
 double phase_step_min=pow(0.1,4);
 double r_step_min=pow(0.1,4);// сделаны чтобы обрывать бесконечные уменьшения шага
 double phase_step=-M_PI/30;
@@ -487,12 +704,10 @@ int counter1=0;
 int swich=0; // переключатель для пристрелки по фазе и радиусу
 int swich1=0;  // переключатель для повторной пристрелки 
 
-    w1=r*exp(1.0i*phase);
 std::vector<std::pair<double,std::pair<double,double>>> bc_arr;
     std::vector<std::pair<double,std::complex<double>>> res,res1,magf,magf_v;
     std::vector<std::pair<double,double>> real_res,im_res,dres,dres1;
-        Gnuplot gp;
-    double beta=p_0*(R*R-1)/(R*R-p_0);
+    double beta=model.p_0*(model.R*model.R-1)/(model.R*model.R-model.p_0);
     
     std::cout<<"Beta: " <<beta<<std::endl;
     std::complex<double> bc=1.0+1.0i;
@@ -500,7 +715,7 @@ std::vector<std::pair<double,std::pair<double,double>>> bc_arr;
 
     while((std::abs(bc))/abs(previous_max)>delta ){//начало цикла для решения уравнения
 
-std::cout<<std::endl<<"dzeta: " <<dzeta(w1);
+std::cout<<std::endl<<"dzeta: " <<model.dzeta(w1);
         res.clear();dres.clear();dres1.clear();real_res.clear();im_res.clear();
   
         auto my_observer=[&]( const state_type1 &y, const double x ) {// запись решения в данной точке
@@ -510,13 +725,13 @@ std::cout<<std::endl<<"dzeta: " <<dzeta(w1);
 
     real_res.push_back(std::make_pair(x,std::real(y[0])));
     im_res.push_back(std::make_pair(x,std::imag(y[0])));
-     if(Z_s<res.back().first&&Z_s<res[res.size()-2].first){
-        phi_z_s=std::real(y[0]);
-    }
+    //  if(Z_s<res.back().first&&Z_s<res[res.size()-2].first){
+    //     phi_z_s=std::real(y[0]);
+    // }
     };
 
-    //dres.push_back(std::make_pair(1.0,1.0));
 
+    //dres.push_back(std::make_pair(1.0,1.0));
     boost::numeric::odeint::runge_kutta_fehlberg78<state_type1> stepper;// метод решения
     // Initial conditions: {y(x0), y'(x0)}
     state_type1 y0 = { 1, 0};
@@ -525,8 +740,8 @@ std::cout<<std::endl<<"dzeta: " <<dzeta(w1);
     double x1 = 1;     // End of the interval
      // Initial step size
     // Perform the integration
-    integrate_const( stepper, my_ode_system1, y0, x0, 0.5, 0.005, my_observer );// само решение
-    integrate_const( stepper, my_ode_system1, y0, 0.5, x1, dx, my_observer );// само решение
+    // integrate_const( stepper, equation, y0, x0, 0.5, 0.005, my_observer );// само решение
+    integrate_const( stepper, equation, y0, x0, x1, dx, my_observer );// само решение
     bc=dres.back().second+1.0i*dres1.back().second;
     std::cout << "|bc|:"<<std::abs(bc) << "real: " <<std::real(bc)<< " Imag: " <<std::imag(bc)<<" w="<< w1<< ",phase=Pi*"<<phase/M_PI<<"r=" <<std::setprecision(10)<<r<<std::endl;
     std::cout<< "delta="<< std::abs(bc)-std::abs(previous_bc)<<std::endl<<swich1<<std::endl;
@@ -581,25 +796,25 @@ std::cout<<std::endl<<"dzeta: " <<dzeta(w1);
     }
 
     w1=r*exp(1.0i*phase);
-    
+    equation.set_omega(w1);
     std::cout << std::endl <<"R_step: "<< r_step <<" Phase_step: "<< phase_step << " Prev: "<< std::abs(previous_bc);
     }
     std::cout<<"w^2: " <<w1*w1<< " phi'="<<dres.back().second <<std::endl;
 
-std::cout<<std::endl<<"beta: " <<beta<<std::endl;
-std::cout<<std::endl<<"dzeta: " <<dzeta(w1)<<std::endl;
-std::cout<<"z_s: " <<Z_s<< std::endl;
- std::cout<<"phi(z_s): " <<phi_z_s<< std::endl;
- std::cout<<"[d_phi]|z_s: " <<d_phi_z_s(phi_z_s,0.05)<< std::endl;
+std::cout<<std::endl<<"beta: " <<model.bbbeta<<std::endl;
+std::cout<<std::endl<<"dzeta: " <<model.dzeta(w1)<<std::endl;
+// std::cout<<"z_s: " <<Z_s<< std::endl;
+//  std::cout<<"phi(z_s): " <<phi_z_s<< std::endl;
+//  std::cout<<"[d_phi]|z_s: " <<d_phi_z_s(phi_z_s,0.05)<< std::endl;
 std::cout <<"|d_phi|1|:"<< sqrt(pow(dres.back().second,2)+pow(dres1.back().second,2));
 //     Gnuplot gp1;
 //  gp << "set terminal wxt 1  title 'dphi'\n";
 // gp << "plot '-' with lines title 'Re(dphi)', '-' with lines title 'Im(dphi)'\n";  gp.send1d(dres);gp.send1d(dres1); 
 // gp1 << "set terminal wxt 2  title 'phi'\n";  ;  //gp1 << "set ytics 1\n"; 
 // gp1 << "plot '-' with lines title 'Re(phi)', '-' with lines title 'Im(phi)'\n";gp1.send1d(real_res);gp1.send1d(im_res);  
-std::cout << std::endl<<"real:"<< std::real( (1.0* std::sqrt(w1 * mu / (8 * M_PI * sigma)) - 1.0i* std::sqrt(w1 * mu / (8 * M_PI * sigma))))<<std::endl<<"Imag:"<<std::imag( (1.0* std::sqrt(w1 * mu / (8 * M_PI * sigma)) - 1.0i* std::sqrt(w1 * mu / (8 * M_PI * sigma)))) ;
+// std::cout << std::endl<<"real:"<< std::real( (1.0* std::sqrt(w1 * mu / (8 * M_PI * sigma)) - 1.0i* std::sqrt(w1 * mu / (8 * M_PI * sigma))))<<std::endl<<"Imag:"<<std::imag( (1.0* std::sqrt(w1 * mu / (8 * M_PI * sigma)) - 1.0i* std::sqrt(w1 * mu / (8 * M_PI * sigma)))) ;
 std::cout << std::endl<< "w^2="<<w1*w1 << "  w:"<<w1 << "r="<<r<<",phase=Pi*"<<phase/M_PI;
-std::cout << std::endl<<"sIgma"<< sigma;
+// std::cout << std::endl<<"sIgma"<< sigma;
 
 std::vector<std::pair<double,double>> aaa,xi,rw,lambuda;
 std::vector<std::pair<double,std::complex<double>>> lambuda1;
@@ -609,11 +824,11 @@ double size=1/static_cast<double>(res.size());
 double xz=0;
 for(int j=0;j<res.size();j++){
    //std::cout << "i:" << j <<"z="<<xz<<std::endl;
-    double az=a(xz);
-    double bv=B_v(xz);
-    double rww=r_w(xz);
-    double lambdaa=lambda(xz);
-    std::complex<double> lambdaa1=lambda_1(xz,30);
+    double az=model.a(xz);
+    double bv=model.B_v(xz);
+    double rww=wall.r_w(xz);
+    double lambdaa=equation.lambda(xz);
+    std::complex<double> lambdaa1=equation.lambda_1(xz);
 aaa.push_back(std::make_pair(xz,az));
 rw.push_back(std::make_pair(xz,rww));
 xi.push_back(std::make_pair(xz,(real_res[j].second/bv/az)));
@@ -659,11 +874,16 @@ if(resuis==0){
      resis="_new_ideal_+";
 }else if(resuis==7){
      resis="_GDL_ideal";
-}else if(resuis==7){
+}else if(resuis==8){
      resis="_GDL_res";
 }
-std::string folder1 = "M="+std::to_string(M)+"_"+"q="+std::to_string(q)+"_"+"k="+std::to_string(k)+"_"+"R="+std::to_string(R);
-std::string folder2 =r_w_str+resis;
+std::string folder1 = "M=" + std::to_string(model.M) + "_" +
+                      "q=" + std::to_string(model.q) + "_" +
+                      "k=" + std::to_string(model.k) + "_" +
+                      "R=" + std::to_string(model.R);
+
+// Исправленная склейка строк (не хватало плюсов и to_string):
+std::string folder2 = "R_w=" + std::to_string(model.RR_w) + resis;
 std::string folder3 ="_beta="+std::to_string(beta);
 std::filesystem::create_directories(folder1 + "/" + folder2 + "/" + folder3);
 
@@ -704,7 +924,7 @@ std::filesystem::create_directories(folder1 + "/" + folder2 + "/" + folder3);
     }
     file.close();}
 {std::ofstream file(folder1 + "/" + folder2 + "/" +folder3 + "/" + name_w);
-        file << "omega:" <<w1 << " dzeta:"<< dzeta(w1) << " bc:" << sqrt(pow(dres.back().second,2)+pow(dres1.back().second,2));
+        file << "omega:" <<w1 << " dzeta:"<< model.dzeta(w1) << " bc:" << sqrt(pow(dres.back().second,2)+pow(dres1.back().second,2));
     file.close();}
 
 {std::ofstream file(folder1 + "/" + folder2 + "/" +folder3 + "/" + name_lambda);
@@ -718,147 +938,28 @@ std::filesystem::create_directories(folder1 + "/" + folder2 + "/" + folder3);
     }
     file.close();}
 
-
-
-// Gnuplot gp2;
-// gp2<<"set terminal wxt 3 title 'a'\n";
-// gp2<<"plot '-' with lines title 'a', '-' with lines title 'xi', '-' with lines title 'r_w'\n";gp2.send1d(aaa);gp2.send1d(xi);gp2.send1d(rw);
-// std::vector<std::pair<double,double>> lab1,lab2,lab21;
-// for(double i=0;i<1000;i++){
-//     lab1.push_back(std::make_pair(i/1000.0,lambda(i/1000.0)));
-//     lab2.push_back(std::make_pair(i/1000.0,std::real(lambda_1(i/1000.0,w1))));
-//     lab21.push_back(std::make_pair(i/1000.0,std::imag(lambda_1(i/1000.0,w1))));
-// }
-//  gp << "set terminal wxt 3  title 'lamba'\n";
-// gp << "plot '-' with lines title 'lambda', '-' with lines title 'Re(lam)', '-' with lines title 'Im(lam)'\n";  gp.send1d(lab1);gp.send1d(lab2); gp.send1d(lab21); 
-// std::cout <<std::endl <<lambda(0.5)<<std::endl <<lambda(0.7) << std::endl << std::real(lambda_1(0.5,0.0001)) << std::endl << std::imag(lambda_1(0.5,w1));
-
-
-}
-
-// решение при заданной w
-void reshatel_0(){
-
-double Z_s=z_s();
-double phi_z_s;
-double delta=0.0001;
-// double r=1.1400000000000;
-// double phase=M_PI/2*0;
-double phase_step=-M_PI/3;
-double r_step=0.1;
-double previous_max=1;
-int counter=0;
-int swich=0;
-int swich1=0;   
-
-    w1=r*exp(1.0i*phase);
-std::vector<std::pair<double,std::pair<double,double>>> bc_arr;
-    std::vector<std::pair<double,std::complex<double>>> res,res1,magf,magf_v;
-    std::vector<std::pair<double,double>> real_res,im_res,dres,dres1;
-        Gnuplot gp;
-    double beta=p_0*(R*R-1)/(R*R-p_0);
-    
-    std::cout<< beta<<std::endl;
-    std::complex<double> bc=1.0+1.0i;
-    std::complex<double> previous_bc=bc*10.0;
-
-
-std::cout<<std::endl<<"dzeta: " <<dzeta(w1);
-        res.clear();dres.clear();dres1.clear();real_res.clear();im_res.clear();
-    auto my_observer=[&]( const state_type1 &y, const double x ) {
-    res.push_back(std::make_pair(x,y[0]));
-    dres.push_back(std::make_pair(x,std::real(y[1])));
-    dres1.push_back(std::make_pair(x,std::imag(y[1])));
-
-    real_res.push_back(std::make_pair(x,std::real(y[0])));
-    im_res.push_back(std::make_pair(x,std::imag(y[0])));
-     if(Z_s<res.back().first&&Z_s<res[res.size()-2].first){
-        phi_z_s=std::real(y[0]);
-    }
-    };
-    //dres.push_back(std::make_pair(1.0,1.0));
-
-    boost::numeric::odeint::runge_kutta_dopri5<state_type1> stepper;
-    // Initial conditions: {y(x0), y'(x0)}
-    state_type1 y0 = { 1, 0};
-    // Integration range and initial step size
-    double x0 = 0;   // Start of the interval
-    double x1 = 1;     // End of the interval
-    double dx = 0.01; // Initial step size
-    // Perform the integration
-    integrate_const( stepper, my_ode_system1, y0, x0, x1, dx, my_observer );
-    bc=dres.back().second+1.0i*dres1.back().second;
-    std::cout << "|bc|:"<<std::abs(bc) << "real: " <<std::real(bc)<< " Imag: " <<std::imag(bc)<<" w="<< w1<< ",phase=Pi*"<<phase/M_PI<<"r=" <<std::setprecision(10)<<r<<std::endl;
-    std::cout<< "delta="<< std::abs(bc)-std::abs(previous_bc)<<std::endl;
-  
-    
-    std::cout << std::endl <<"R_step: "<< r_step <<" Phase_step: "<< phase_step << " Prev: "<< std::abs(previous_bc);
-    
-    std::cout<<"w^2: " <<w1*w1<< " phi'="<<dres.back().second <<std::endl;
-
-std::cout<<std::endl<<"beta: " <<beta<<std::endl;
-std::cout<<std::endl<<"dzeta: " <<dzeta(w1)<<std::endl;
-std::cout<<"z_s: " <<Z_s<< std::endl;
- std::cout<<"phi(z_s): " <<phi_z_s<< std::endl;
- std::cout<<"[d_phi]|z_s: " <<d_phi_z_s(phi_z_s,0.05)<< std::endl;
-std::cout <<"|d_phi|1|:"<< sqrt(pow(dres.back().second,2)+pow(dres1.back().second,2));
-    Gnuplot gp1;
- gp << "set terminal wxt 1  title 'dphi'\n";
-gp << "plot '-' with lines title 'Re(dphi)', '-' with lines title 'Im(dphi)'\n";  gp.send1d(dres);gp.send1d(dres1); 
-gp1 << "set terminal wxt 2  title 'phi'\n";  ;  //gp1 << "set ytics 1\n"; 
-gp1 << "plot '-' with lines title 'Re(phi)', '-' with lines title 'Im(phi)'\n";gp1.send1d(real_res);gp1.send1d(im_res);  
-std::cout << std::endl<<"real:"<< std::real( (1.0* std::sqrt(w1 * mu / (8 * M_PI * sigma)) - 1.0i* std::sqrt(w1 * mu / (8 * M_PI * sigma))))<<std::endl<<"Imag:"<<std::imag( (1.0* std::sqrt(w1 * mu / (8 * M_PI * sigma)) - 1.0i* std::sqrt(w1 * mu / (8 * M_PI * sigma)))) ;
-std::cout << std::endl<< "w^2="<<w1*w1 << "  w:"<<w1 << "r="<<r<<",phase=Pi*"<<phase/M_PI;
-std::cout << std::endl<<"sIgma"<< sigma;
-
-
-
-// std::vector<std::pair<double,double>> aaa,xi,rw;
-
-// double size=1/static_cast<double>(res.size());
-
-// double xz=-size;
-// for(int j=0;j<res.size();j++){
-//    //std::cout << "i:" << j <<"z="<<xz<<std::endl;
-//     xz+=size;
-//     double az=a(xz);
-//     double bv=B_v(xz);
-//     double rww=r_w(xz);
-// aaa.push_back(std::make_pair(xz,az));
-// rw.push_back(std::make_pair(xz,rww));
-// xi.push_back(std::make_pair(xz,(real_res[j].second/bv/az)));
-// }
-
-// Gnuplot gp2;
-// gp2<<"set terminal wxt 3 title 'a'\n";
-// gp2<<"plot '-' with lines title 'a', '-' with lines title 'xi', '-' with lines title 'r_w'\n";gp2.send1d(aaa);gp2.send1d(xi);gp2.send1d(rw);
-// std::vector<std::pair<double,double>> lab1,lab2,lab21;
-// for(double i=0;i<1000;i++){
-//     lab1.push_back(std::make_pair(i/1000.0,lambda(i/1000.0)));
-//     lab2.push_back(std::make_pair(i/1000.0,std::real(lambda_1(i/1000.0,w1))));
-//     lab21.push_back(std::make_pair(i/1000.0,std::imag(lambda_1(i/1000.0,w1))));
-// }
-//  gp << "set terminal wxt 3  title 'lamba'\n";
-// gp << "plot '-' with lines title 'lambda', '-' with lines title 'Re(lam)', '-' with lines title 'Im(lam)'\n";  gp.send1d(lab1);gp.send1d(lab2); gp.send1d(lab21); 
-// std::cout <<std::endl <<lambda(0.5)<<std::endl <<lambda(0.7) << std::endl << std::real(lambda_1(0.5,0.0001)) << std::endl << std::imag(lambda_1(0.5,w1));
-
-
 }
 
 
-int main(){
 
-r=0.70; 
-RR_w=2.25;
- phase=M_PI/2;
- r_w_str="st_RR_w"+std::to_string(RR_w);
- 
- for(double i=0.2;i<=0.99;i+=0.01){// в виде подобного цикла обычно считаются графики, которые я вам показываю
-    RR_w=2.25;
-    bbbeta=i;   
-    p_0=bbbeta*2.0*R*R/(2.0*(bbbeta+R*R-1.0));
+int main() {
 
-    reshatel(7, 0.001);
+PlasmaModel_A1_int model;
+    // model.M = 8.0; 
+    // model.q = 2.0;   
+    // model.R = 1.1; 
+    // model.k = 4;
+    model.RR_w = 2.25;
+    model.bbbeta = 0.2;
+    model.R = 3.2;
+    model.B_v_ = 3671.324;
+    model.update();     
 
-}
+    // Wall_Pr<PlasmaModel_A1> wall(model); 
+    Wall_St wall; 
+r=1.5;phase=M_PI/2;
+    reshatel<LoDestroEquation_int2>(model, wall, 0, 0.0001);
+    
+
+
 }
