@@ -1,6 +1,7 @@
 #include <iostream>
 #include <cmath>
 #include <math.h>
+#include <omp.h>
 #include <chrono>
 #include <fstream>
 #include <filesystem> 
@@ -16,6 +17,7 @@
 #include <boost/numeric/odeint.hpp>
 #include <boost/math/interpolators/barycentric_rational.hpp>
 // #include <boost/math/interpolators/cubic_b_spline.hpp>
+#include <boost/math/interpolators/pchip.hpp>
 #include <boost/math/interpolators/makima.hpp>
 #include <boost/math/complex.hpp>
 #include "gnuplot-iostream.h"
@@ -30,9 +32,9 @@ typedef std::vector<std::complex<double>> state_type1;
 
 class FileInterpolator {
 private:
-    // std::unique_ptr<boost::math::interpolators::barycentric_rational<double>> interp;
-    using interpolator_type = boost::math::interpolators::makima<std::vector<double>>;
-    std::unique_ptr<interpolator_type> interp;
+    std::unique_ptr<boost::math::interpolators::barycentric_rational<double>> interp;
+    // using interpolator_type = boost::math::interpolators::makima<std::vector<double>>;
+    // std::unique_ptr<interpolator_type> interp;
     bool ready = false;
     double z_min = 0.0;
     double z_max = 1.438794035387821;
@@ -57,20 +59,20 @@ double z;
         }
         file.close();
 
-        // if (x.size() > 2) {
-        //     // Создаем интерполятор (порядок аппроксимации 3)
-        //     interp = std::make_unique<boost::math::interpolators::barycentric_rational<double>>(
-        //         std::move(x), std::move(y), 3
-        //     );
-        //     ready = true;
-        // }
-        if (x.size() >= 5) {
-            // В конструктор Makima передаются только векторы x и y.
-            interp = std::make_unique<interpolator_type>(std::move(x), std::move(y));
+        if (x.size() > 2) {
+            // Создаем интерполятор (порядок аппроксимации 3)
+            interp = std::make_unique<boost::math::interpolators::barycentric_rational<double>>(
+                std::move(x), std::move(y), 3
+            );
             ready = true;
-        } else if (x.size() > 0) {
-            std::cerr << "Error: Not enough points for Makima (need at least 5)" << std::endl;
         }
+        // if (x.size() >= 5) {
+        //     // В конструктор Makima передаются только векторы x и y.
+        //     interp = std::make_unique<interpolator_type>(std::move(x), std::move(y));
+        //     ready = true;
+        // } else if (x.size() > 0) {
+        //     std::cerr << "Error: Not enough points for Makima (need at least 5)" << std::endl;
+        // }
     }
     
 
@@ -91,6 +93,27 @@ double z;
     bool is_ready() const { return ready; }
 };
 
+struct SharedInterpolationData {
+    FileInterpolator Bv_data;
+    FileInterpolator dBv_data;
+    FileInterpolator ddav_av_data;
+    FileInterpolator dBv_Bv_data;
+
+    // аргументы со значениями по умолчанию, можно менять указывая их в аргументах или не менять, вовсе ничего не указывая
+    void load_all(const std::string& papka_int= R"(C:\Users\MJ\Desktop\ballon\pole\clean\)", 
+                  const std::string& B_v = "tblbv_1_2.dat",
+                  const std::string& dB_v = "tblbvD1_1_2.dat",
+                  const std::string& dB_v_Bv = "tblAvD1Av_1_2.dat",
+                  const std::string& ddav_av = "tblAvD2Av_1_2.dat") 
+    {
+        Bv_data.load(papka_int + B_v);
+        dBv_data.load(papka_int + dB_v);
+        ddav_av_data.load(papka_int + ddav_av);
+        dBv_Bv_data.load(papka_int + dB_v_Bv);
+        
+        std::cout << "All interpolation data loaded from " << papka_int << " successfully." << std::endl;
+    }
+};
 
 
 struct PlasmaModel_A1{
@@ -291,24 +314,20 @@ double bbbeta=0.9;
 
 //608053020
 
-FileInterpolator Bv_data;
-FileInterpolator dBv_data;
-FileInterpolator ddav_av_data;
-FileInterpolator dBv_Bv_data;
+// Ссылки на общие данные, чтобы не читать файлы на каждом потоке
+    const FileInterpolator& Bv_data;
+    const FileInterpolator& dBv_data;
+    const FileInterpolator& ddav_av_data;
+    const FileInterpolator& dBv_Bv_data;
 
-std::string papka_int = R"(C:\Users\MJ\Desktop\ballon\pole\clean\)";
-std::string B_v_str="tblbv_1_2.dat";
-std::string dB_v_str="tblbvD1_1_2.dat";
-std::string dB_v_Bv_str="tblAvD1Av_1_2.dat";
-std::string ddav_av_str="tblAvD2Av_1_2.dat";
-
-PlasmaModel_A1_int() { 
-    Bv_data.load(papka_int+B_v_str);
-    dBv_data.load(papka_int+dB_v_str);
-    ddav_av_data.load(papka_int+ddav_av_str);
-    dBv_Bv_data.load(papka_int+dB_v_Bv_str);
-    update(); 
-}
+    PlasmaModel_A1_int(const SharedInterpolationData& shared_data) 
+        : Bv_data(shared_data.Bv_data), 
+          dBv_data(shared_data.dBv_data), 
+          ddav_av_data(shared_data.ddav_av_data), 
+          dBv_Bv_data(shared_data.dBv_Bv_data) 
+    { 
+        update(); 
+    }
 
 void update() {
     p_0 = bbbeta * 2.0 * R * R / (2.0 * (bbbeta + R * R - 1.0));
@@ -347,7 +366,7 @@ double p (double psi)const{
 double B_v (double z)const{
     if (Bv_data.is_ready()) {
             return Bv_data.val(z) / R; 
-        }else{throw std::runtime_error("Error: Bv_data is not ready. Check file: " + papka_int + B_v_str);}
+        }else{throw std::runtime_error("Error: Bv_data is not ready. Check file: " );}
     // return (1.0+(M-1.0)*pow(sin(M_PI*z/2.0),q))/R;
     // return Bv_int(z);
 }
@@ -358,7 +377,7 @@ double B_v2 (double z)const{
 double d_B_v (double z)const{
     if (dBv_data.is_ready()) {
             return dBv_data.val(z) / R; 
-        }else{throw std::runtime_error("Error: dBv_data is not ready. Check file: " + papka_int + dB_v_str);}
+        }else{throw std::runtime_error("Error: dBv_data is not ready. Check file: " );}
 }
 double b_v (double z)const{
     
@@ -448,12 +467,12 @@ double p_avg(double z) const {
     double ddav_av(double z) const{
  if (ddav_av_data.is_ready()) {
             return ddav_av_data.val(z); 
-        }else{throw std::runtime_error("Error: ddav_av_data is not ready. Check file: " + papka_int + ddav_av_str);}
+        }else{throw std::runtime_error("Error: ddav_av_data is not ready. Check file: " );}
     }
     double dBv_bv(double z) const{
          if (dBv_Bv_data.is_ready()) {
             return -2.0*dBv_Bv_data.val(z); 
-        }else{throw std::runtime_error("Error: dBv_Bv_data is not ready. Check file: " + papka_int + dB_v_Bv_str);}
+        }else{throw std::runtime_error("Error: dBv_Bv_data is not ready. Check file: ");}
     }
 };
 
@@ -672,12 +691,13 @@ double right_func(double z) const {
 bool compareSecond(const std::pair<double, double>& a, const std::pair<double, double>& b) {
     return std::abs(a.second) < std::abs(b.second);
 }
-double r=0.11;
-double phase=M_PI/2.1;
+// double r=0.11;
+// double phase=M_PI/2.1;
 template <template<class, class> class EquationType, class Model, class Wall>
-void reshatel(Model& model, Wall& wall, int resuis, double dx) {
+void reshatel(Model& model, Wall& wall, int resuis, double dx,double r_init, double phase_init) {
     using namespace std::complex_literals;
-    
+    double r=r_init;
+    double phase=phase_init;
     std::complex<double> w1=r*exp(1.0i*phase);
     model.update();
     EquationType<Model, Wall> equation(model, wall, w1);
@@ -941,25 +961,37 @@ std::filesystem::create_directories(folder1 + "/" + folder2 + "/" + folder3);
 }
 
 
-
+// #pragma omp threadprivate(r, phase)
 int main() {
+    SharedInterpolationData shared_data;
+    std::string papka_int = R"(C:\Users\MJ\Desktop\ballon\pole\clean\)";
+    shared_data.load_all(papka_int);
+double start_beta = 0.2;
+    double end_beta = 0.98;
+    double step = 0.05;
+    int steps = static_cast<int>((end_beta - start_beta) / step);
+double r1 = 0.8;
+        double phase1 = M_PI / 2.0;
+#pragma omp parallel for schedule(dynamic)
+    for (int i = 0; i <= steps; ++i) {
+        double current_beta = start_beta + i * step;
 
-PlasmaModel_A1_int model;
-    // model.M = 8.0; 
-    // model.q = 2.0;   
-    // model.R = 1.1; 
-    // model.k = 4;
-    model.RR_w = 2.25;
-    model.bbbeta = 0.2;
-    model.R = 3.2;
-    model.B_v_ = 3671.324;
-    model.update();     
+        // Передаем ссылку на shared_data в модель
+        PlasmaModel_A1_int model(shared_data);
+        model.RR_w = 2.25;
+        model.bbbeta = current_beta;
+        model.R = 3.2;
+        model.B_v_ = 3671.324;
+        model.update();
 
-    // Wall_Pr<PlasmaModel_A1> wall(model); 
-    Wall_St wall; 
-r=1.5;phase=M_PI/2;
-    reshatel<LoDestroEquation_int2>(model, wall, 0, 0.0001);
-    
+        Wall_St wall;
 
+        #pragma omp critical(print)
+        std::cout << "\nStarting Thread " << omp_get_thread_num() << " for beta: " << current_beta << std::endl;
+
+        // Передаем начальные r и phase как аргументы!
+        reshatel<LoDestroEquation_int2>(model, wall, 7, 0.01, 0.8, M_PI / 2.0);
+    }
+    return 0;
 
 }
