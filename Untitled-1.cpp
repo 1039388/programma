@@ -143,7 +143,7 @@ double k=4.0;
 double bbbeta=0.9;
 
 
-
+double alpha=0.0;
 // double w_0=B_s_/(L*sqrt(N_c*m_i/c_0/c_0));
 
 //608053020
@@ -166,11 +166,11 @@ void update() {
 std::complex<double> dzeta(std::complex<double> omega) const{
     using namespace std::complex_literals;
 
-std::complex<double> epsilon=-2.2*pow(10,5)+1.0i*6.55*pow(10,18)/w_0/omega;
+std::complex<double> epsilon=-2.2*pow(10,5)+1.0i*6.55*pow(10,18)/w_0/omega*pow(10,alpha);
 //  return ((1.0 - 1.0i)* std::sqrt(omega * mu /(8 * M_PI * sigma)));
 //  return std::sqrt(mu /(1.0+1.0i*4.0 * M_PI * sigma/(1.0-1.0i*omega*tau)));
-// return sqrt(mu/epsilon);
-   return 0.0;
+return sqrt(mu/epsilon);
+//    return 0.0;
 }
 
 double f (double psi)const{
@@ -476,7 +476,114 @@ double p_avg(double z) const {
     }
 };
 
+struct Wall_1 {
+    // double RR_w = 2.25;
+
+    double r_w(double z) const {
+        // Участок s <= 0.137...
+        if (z <= 0.13714285714285715) {
+            return 1.0;
+        } 
+        // Участок 0.137... < s <= 0.422...
+        else if (z <= 0.42228571428571426) {
+            return (161857.0 - 150500.0 * z) / 4990.0/48.9;
+        } 
+        // Участок 0.422... < s <= 0.619...
+        else if (z <= 0.6194285714285714) {
+            return 19.7/48.9;
+        } 
+        // Участок 0.619... < s <= 0.758...
+        else if (z <= 0.7587142857142857) {
+            return 1.0;
+        } 
+        // Участок 0.758... < s <= 0.947
+        else if (z <= 0.947) {
+            return 7.0 * (409973.0 - 419000.0 * z) / 13180.0/48.9;
+        } 
+        // Участок 0.947 < s <= 1.053
+        else if (z <= 1.053) {
+            return 7.0/48.9;
+        } 
+        // Участок 1.053 < s <= 1.241...
+        else if (z <= 1.241142857142857) {
+            return -(7.0 * (428037.0 - 419000.0 * z)) / 13170.0/48.9;
+        } 
+        // Участок s > 1.241...
+        else {
+            return 1.0;
+        }
+    
+    }
+
+};
+
+struct Wall_1_Smooth {
+   const double sqrt_pi = std::sqrt(M_PI);
+
+    double r_w(double z) const {
+        // Предварительный расчет повторяющихся значений для оптимизации
+        double arg1 = 0.13714285714285715 - z;
+        double arg2 = 0.42228571428571426 - z;
+        double arg3 = 0.7587142857142857 - z;
+        double arg4 = 0.947 - z;
+        double arg5 = 1.053 - z;
+        double arg6 = 1.241142857142857 - z;
+
+        double erf_part1 = 9.6 - 70.0 * z;
+        double erf_part2 = 29.56 - 70.0 * z;
+        double erf_part3 = 53.11 - 70.0 * z;
+        double erf_part4 = 73.71 - 70.0 * z;
+        double erf_part5 = 86.88 - 70.0 * z;
+
+        double res = 24.45;
+
+        // Гауссовы "всплески" (экспоненты)
+        res -= 215.0 / (998.0 * std::exp(4900.0 * arg1 * arg1) * sqrt_pi);
+        res += 215.0 / (998.0 * std::exp(4900.0 * arg2 * arg2) * sqrt_pi);
+        res -= 2095.0 / (1318.0 * std::exp(4900.0 * arg3 * arg3) * sqrt_pi);
+        res += 2095.0 / (1318.0 * std::exp(4900.0 * arg4 * arg4) * sqrt_pi);
+        res += 2095.0 / (1317.0 * std::exp(4900.0 * arg5 * arg5) * sqrt_pi);
+        res -= 2095.0 / (1317.0 * std::exp(4900.0 * arg6 * arg6) * sqrt_pi);
+
+        // Слагаемые с функциями ошибок (Erf)
+        res += ((41077.0 + 75250.0 * z) * std::erf(erf_part1)) / 4990.0;
+        res += ((2192613.0 - 5192250.0 * z) * std::erf(erf_part2)) / 344310.0;
+        
+        double erf3 = std::erf(erf_part3);
+        res -= (2225309.0 * erf3) / 26360.0;
+        res += (73325.0 * z * erf3) / 659.0;
+
+        double erf4 = std::erf(erf_part4);
+        res += (1029483.0 * erf4) / 8780.0;
+        res -= (146650.0 * z * erf4) / 1317.0;
+
+        double erf5 = std::erf(erf_part5);
+        res -= (998753.0 * erf5) / 8780.0;
+        res += (146650.0 * z * erf5) / 1317.0;
+
+        res -= (73.0 * std::erf(70.0 * (0.6194285714285714 - z))) / 5.0;
+        
+        double erf6 = std::erf(70.0 * arg4);
+        res += (2777551.0 * erf6) / 26360.0;
+        res -= (73325.0 * z * erf6) / 659.0;
+
+        // Завершающий Erfc
+        res += (489.0 * std::erfc(erf_part5)) / 20.0;
+
+        return res;
+    }
+
+};
+
 struct Wall_St {
+    // double RR_w = 2.25;
+
+    double r_w(double z) const {
+        return 1.0; 
+    }
+
+};
+struct Wall_Int {
     // double RR_w = 2.25;
 
     double r_w(double z) const {
@@ -491,7 +598,7 @@ struct Wall_Pr {
     Wall_Pr(const Model& model) : m(model) {}
 
     double r_w(double z) const {
-        return m.a(z); 
+        return m.a(z)/m.a(0); 
     }
 
 };
@@ -694,7 +801,7 @@ bool compareSecond(const std::pair<double, double>& a, const std::pair<double, d
 // double r=0.11;
 // double phase=M_PI/2.1;
 template <template<class, class> class EquationType, class Model, class Wall>
-void reshatel(Model& model, Wall& wall, int resuis, double dx,double r_init, double phase_init) {
+std::pair<double,double> reshatel(Model& model, Wall& wall, int resuis, double dx,double r_init, double phase_init) {
     using namespace std::complex_literals;
     double r=r_init;
     double phase=phase_init;
@@ -713,11 +820,11 @@ void reshatel(Model& model, Wall& wall, int resuis, double dx,double r_init, dou
     std::cout <<"Lambda_1 : "<< equation.lambda_1(0)<<std::endl;
     // double Z_s=z_s();
     //     double phi_z_s;
-double delta=0.00000000; // задаёт точность зануления на правой границе 
+double delta=0.00000001; // задаёт точность зануления на правой границе 
 double phase_step_min=pow(0.1,4);
 double r_step_min=pow(0.1,4);// сделаны чтобы обрывать бесконечные уменьшения шага
-double phase_step=-M_PI/30;
-double r_step=0.1;
+double phase_step=-M_PI/3000;
+double r_step=0.0002;
 double previous_max=1;
 int counter=0;
 int counter1=0;
@@ -772,6 +879,7 @@ std::cout<<std::endl<<"dzeta: " <<model.dzeta(w1);
         if(std::abs(previous_bc)<std::abs(bc)){
           //  std::cout << "prev:  "<<std::abs(previous_bc) << "bc:   "<<std::abs(bc); 
             if(abs(phase_step)<phase_step_min){swich=1; counter=0;previous_bc=bc;}else{
+            
             phase-=phase_step;
             phase_step/=2;
             phase+=phase_step;
@@ -784,6 +892,7 @@ std::cout<<std::endl<<"dzeta: " <<model.dzeta(w1);
             }
         }
         }else {
+            // while(phase+phase_step<0.0){phase_step/=2.0;}
         phase+=phase_step;
         previous_bc=bc;
        
@@ -802,11 +911,11 @@ std::cout<<std::endl<<"dzeta: " <<model.dzeta(w1);
             counter++;
             if(counter>=5&&(abs(r_step)<r_step_min*100)){
                 r-=r_step;
-                r_step=-r_step*pow(2,counter-2);
+                r_step=-r_step*pow(2,counter-3);
                 r+=r_step;
                 counter=0;
             }
-            if(abs(r_step)<r_step_min){  if(swich1==5){std::cout <<std::endl << "Dela"<<std::endl; break;}else{r_step_min/=10;phase_step_min/=10;swich1++;swich=0;phase_step*=100;r_step*=100;counter=0;previous_bc=bc;}}
+            if(abs(r_step)<r_step_min){  if(swich1==6){std::cout <<std::endl << "Dela"<<std::endl; break;}else{r_step_min/=10;phase_step_min/=10;swich1++;swich=0;phase_step*=10;r_step*=10;counter=0;previous_bc=bc;}}
         }else{
         r+=r_step;
         counter=0;
@@ -897,10 +1006,10 @@ if(resuis==0){
 }else if(resuis==8){
      resis="_GDL_res";
 }
-std::string folder1 = "M=" + std::to_string(model.M) + "_" +
+std::string folder1 = "newprovod_M=" + std::to_string(model.M) + "_" +
                       "q=" + std::to_string(model.q) + "_" +
                       "k=" + std::to_string(model.k) + "_" +
-                      "R=" + std::to_string(model.R);
+                      "R=" + std::to_string(model.R)+"_alpha="+std::to_string(model.alpha);
 
 // Исправленная склейка строк (не хватало плюсов и to_string):
 std::string folder2 = "R_w=" + std::to_string(model.RR_w) + resis;
@@ -958,6 +1067,7 @@ std::filesystem::create_directories(folder1 + "/" + folder2 + "/" + folder3);
     }
     file.close();}
 
+    return std::make_pair(r,phase);
 }
 
 
@@ -970,28 +1080,96 @@ double start_beta = 0.2;
     double end_beta = 0.98;
     double step = 0.05;
     int steps = static_cast<int>((end_beta - start_beta) / step);
-double r1 = 0.8;
-        double phase1 = M_PI / 2.0;
-#pragma omp parallel for schedule(dynamic)
-    for (int i = 0; i <= steps; ++i) {
-        double current_beta = start_beta + i * step;
+double r1 = 0.139;
+        double phase1 =M_PI*0.5;
+// #pragma omp parallel for schedule(dynamic)
+//     for (int i = 0; i <= steps; ++i) {
+//         double current_beta = start_beta + i * step;
 
-        // Передаем ссылку на shared_data в модель
-        PlasmaModel_A1_int model(shared_data);
-        model.RR_w = 2.25;
-        model.bbbeta = current_beta;
-        model.R = 3.2;
-        model.B_v_ = 3671.324;
-        model.update();
+//         // Передаем ссылку на shared_data в модель
+//         PlasmaModel_A1_int model(shared_data);
+//         model.RR_w = 2.25;
+//         model.bbbeta = current_beta;
+//         model.R = 3.2;
+//         model.B_v_ = 3671.324;
+//         model.update();
 
-        Wall_St wall;
+//         Wall_St wall;
 
-        #pragma omp critical(print)
-        std::cout << "\nStarting Thread " << omp_get_thread_num() << " for beta: " << current_beta << std::endl;
+//         #pragma omp critical(print)
+//         std::cout << "\nStarting Thread " << omp_get_thread_num() << " for beta: " << current_beta << std::endl;
 
-        // Передаем начальные r и phase как аргументы!
-        reshatel<LoDestroEquation_int2>(model, wall, 7, 0.01, 0.8, M_PI / 2.0);
-    }
-    return 0;
+//         reshatel<LoDestroEquation_int2>(model, wall, 7, 0.01, 0.8, M_PI / 2.0);
+//     }
+//     return 0;
+
+
+
+    //     PlasmaModel_A1_int model(shared_data);
+    //     model.RR_w = 2.25;
+    //     model.bbbeta = 0.4;
+    //     model.R = 3.2;
+    //     model.B_v_ = 3671.324;
+    //     model.update();
+
+    //     Wall_1 wall;
+    //             reshatel<LoDestroEquation_int2>(model, wall, 7, 0.001, 0.8, M_PI / 2.0);
+
+//  Wall_1 wall;
+//  Wall_1_Smooth wall2;
+//  std::vector<std::pair<double,double>> stena,stena2;
+//  for(double i=0.0;i<=1.0;i+=0.001){
+//     stena.push_back(std::make_pair(i,wall.r_w(i)));
+//     stena2.push_back(std::make_pair(i,wall2.r_w(i)/48.9));
+//  }
+//  Gnuplot gp;
+ 
+//     gp << "set title ' Wall'\n";
+//     gp << "set xlabel 'z'\n";
+//     gp << "set ylabel 'r_w(z)'\n";
+//     gp << "set grid\n";
+//     gp <<" set terminal wxt\n";
+//     gp << "plot '-' with lines title 'r_w(z)' lw 2 lc rgb 'red', '-' with lines title 'r_w\\_smooth(z)' lw 2 lc rgb 'blue'\n";
+//     gp.send1d(stena);gp.send1d(stena2);
+
+
+std::pair<double,double> para=std::make_pair(r1,phase1);
+std::pair<double,double> para1=para;
+    // Wall_St walst;
+    // PlasmaModel_A1 plasma1;
+    // plasma1.M=8;
+    // plasma1.k=4;
+    // plasma1.q=4;
+    // plasma1.R=1.1;
+    // plasma1.RR_w=2.25;
+    // for(int i=-3;i<=3;i++){
+    //         plasma1.alpha=i;
+    //         plasma1.update();
+    //         para=para1;
+    //     for(double beta=0.6;beta<=0.99;beta+=0.02){
+    //         plasma1.bbbeta=beta;
+    //         plasma1.update();
+            
+    //             para=reshatel<LoDestroEquation>(plasma1, walst, 7, 0.005, para.first,para.second);
+
+    //     }
+    // }
+
+    PlasmaModel_A1 plasma1;
+ Wall_Pr walst(plasma1);
+    plasma1.M=4;
+    plasma1.k=4;
+    plasma1.q=4;
+    plasma1.R=1.5;
+    plasma1.RR_w=1.1;
+
+            plasma1.update(); 
+     for(double beta=0.67;beta>=0.63;beta-=0.01){
+            plasma1.bbbeta=beta;
+            plasma1.update();
+            
+                para=reshatel<LoDestroEquation>(plasma1, walst, 2, 0.01, para.first,para.second);
+
+        }
 
 }
