@@ -282,6 +282,7 @@ double p_avg(double z) const {
         return last_pavg_val;
     }
 };
+
 struct PlasmaModel_A1_int{
 double B_s_, c, zeta_0, r_0;
 double p_0, w_0;
@@ -475,6 +476,250 @@ double p_avg(double z) const {
         }else{throw std::runtime_error("Error: dBv_Bv_data is not ready. Check file: ");}
     }
 };
+
+struct PlasmaModel_A3{
+double B_s_, c, zeta_0, r_0;
+double p_0, w_0;
+double Z_s;
+
+double pl=1;   //плотность
+double mu=1;
+std::complex<double> sigma=1.38*10000*pow(10,12)/1.113; // 3-4 множители перевод в СГС 1.38*10000(Ом*см)^-1
+double tau=2.5*pow(10,-14);
+double c_0=3*pow(10,10);
+double m_i=940*pow(10,6)*1.6*pow(0.1,12); // масса покоя протона в эрг
+
+double L=350.0;
+double N_c=pow(10,13);
+double B_v_=3000.0;
+
+
+double RR_w=2.25;
+double a_0=20.0;
+
+double R=1.1;
+double B_s=1.0;
+double M=8.0;
+double q=4.0;
+double k=4.0;
+double bbbeta=0.9;
+
+
+double alpha=0.0;
+// double w_0=B_s_/(L*sqrt(N_c*m_i/c_0/c_0));
+
+//608053020
+PlasmaModel_A3() { update(); }
+
+void update() {
+    p_0 = -0.125 * (R*R*bbbeta) / (std::pow(R - std::sqrt(1 - bbbeta), 2) * (-1.0 + bbbeta));
+    B_s_=B_v_*R;
+    w_0=B_v_/(L*sqrt(N_c*1.6726*pow(0.1,24)));
+    r_0=RR_w*a_0;
+    c=c_0;
+    zeta_0=c/w_0/r_0;
+    last_z_ddav = last_z_an = last_z_a2n = -1.0;
+    last_z = last_z_da2 = last_z_pavg = -1.0;
+    Z_s=Z_s_1();
+        // Загрузка файлов и инициализация интерполяторов здесь (один раз!)
+        // load_interpolation_data();
+}
+
+
+std::complex<double> dzeta(std::complex<double> omega) const{
+    using namespace std::complex_literals;
+
+std::complex<double> epsilon=-2.2*pow(10,5)+1.0i*6.55*pow(10,18)/w_0/omega*pow(10,alpha);
+//  return ((1.0 - 1.0i)* std::sqrt(omega * mu /(8 * M_PI * sigma)));
+//  return std::sqrt(mu /(1.0+1.0i*4.0 * M_PI * sigma/(1.0-1.0i*omega*tau)));
+// return sqrt(mu/epsilon);
+   return 0.0;
+}
+
+double f (double psi)const{
+    if(psi >= 0 && psi <= 1){
+        return 1-pow(psi,k);
+    }
+    else{return 0;
+    }
+}
+double p (double psi)const{
+    return p_0*f(psi);
+}
+
+double B_v (double z)const{
+    return (1.0+(M-1.0)*pow(sin(M_PI*z/2.0),q))/R;
+    // return Bv_int(z);
+}
+
+double B_v2 (double z)const{
+    return 1.0/(B_v(z)*B_v(z));
+    // return 1.0/(Bv_int(z)*Bv_int(z));
+}
+double d_B_v (double z)const{
+    return (M-1.0)*q*M_PI/2.0*cos(M_PI*z/2.0)*pow(sin(M_PI*z/2.0),q-1)/R;
+    // return DBv_int(z);
+}
+double b_v (double z)const{
+    return (1.0+(M-1.0)*pow(sin(M_PI*z/2.0),q))/R;
+    // return Bv_int(z);
+
+}
+
+double Z_s_1(){
+    return 2/M_PI*asin(pow((R-1)/(M-1),1/q));
+}
+
+double B(double z, double psi) const {
+    double Bv=B_v(z);
+    if(Bv>1){return Bv;}
+    double pp = p(psi); // Замена p на pp согласно заданию
+
+    // Проверка на ноль для безопасного деления (защита от краша)
+    // if (pp == 0.0) {
+    //     return NAN; // Или обработайте ошибку иначе, если требуется
+    // }
+
+    // 1. Предварительное вычисление часто используемых степеней
+    double Bv2 = Bv * Bv;
+    double Bv4 = Bv2 * Bv2;
+    double pp2 = pp * pp;
+    double pp3 = pp2 * pp;
+
+    // 2. Вычисление самого глубокого выражения под квадратным корнем
+    double innerSqrtArg = Bv2 * pp * (1.0 + 8.0 * (3.0 + 8.0 * Bv2) * pp +
+                          64.0 * (3.0 - 20.0 * Bv2 + 16.0 * Bv4) * pp2 -
+                          512.0 * (-1.0 + Bv2) * pp3); 
+
+    // 3. Вычисление выражения под кубическим корнем
+    double cubeRootArg = 1.0 + 24.0 * (1.0 + 12.0 * Bv2) * pp -
+                         192.0 * (-1.0 + 6.0 * Bv2) * pp2 + 512.0 * pp3 +
+                         12.0 * std::sqrt(6.0) * std::sqrt(innerSqrtArg);
+
+    // 4. Сам кубический корень (в формуле это блок (...)^(1/3))
+    double C = std::cbrt(cubeRootArg);
+
+    // if (C == 0.0) {
+    //     return NAN; // Защита от деления на ноль
+    // }
+
+    // 5. Вычисление аргумента для первого большого квадратного корня (S1)
+    double S1_arg = 1.0 - (1.0 + 8.0 * pp) / (12.0 * pp) +
+                    (1.0 + (16.0 - 96.0 * Bv2) * pp + 64.0 * pp2) / (24.0 * pp * C) +
+                    C / (24.0 * pp);
+
+    // Защита от извлечения корня из отрицательного числа
+    // if (S1_arg <= 0.0) {
+    //     return NAN; 
+    // }
+    double S1 = std::sqrt(S1_arg);
+
+    // 6. Вычисление аргумента для второго большого квадратного корня (S2)
+    // Обратите внимание: в конце прибавляется блок 1 / (4 * p * S1)
+    double S2_arg = 2.0 - (1.0 + 8.0 * pp) / (6.0 * pp) +
+                    (-1.0 + 16.0 * (-1.0 + 6.0 * Bv2) * pp - 64.0 * pp2) / (24.0 * pp * C) -
+                    C / (24.0 * pp) +
+                    1.0 / (4.0 * pp * S1);
+
+    // if (S2_arg < 0.0) {
+    //     return NAN;
+    // }
+    double S2 = std::sqrt(S2_arg);
+
+    // 7. Итоговая сборка формулы: b = 1/2 - 1/2*S1 + 1/2*S2
+    double b = 0.5 - 0.5 * S1 + 0.5 * S2;
+
+    return b;
+}
+double p_perp(double z, double psi) const{
+    if(z>Z_s){return 0;}
+    double b=B(z,psi);
+    double pp=p(psi);
+    return 4.0*pp*b*b*std::pow(1-b,2);
+}
+double p_paral(double z, double psi) const{
+    if(z>Z_s){return 0;}
+    double b=B(z,psi);
+    double pp=p(psi);
+    return 4.0/3.0*pp*b*std::pow(1-b,3);
+}
+double a_v (double z)const{
+    return sqrt(2.0/B_v(z));
+} 
+double d_a_v (double z)const{
+    return -sqrt(2.0/B_v(z))/(2.0*B_v(z))*d_B_v(z);
+} 
+mutable double last_z_ddav = -1.0, last_ddav_val = 0.0;
+double dd_a_v(double z) const {
+        if (std::abs(z - last_z_ddav) < 1e-12) return last_ddav_val;
+        auto func = [this](double x) { return this->d_a_v(x); };
+        last_ddav_val = boost::math::differentiation::finite_difference_derivative(func, z);
+        last_z_ddav = z;
+        return last_ddav_val;
+    }
+mutable double last_z_an = -1.0;
+mutable double last_an_val = 0.0;
+double a_nenorm(double z) const {
+    if (std::abs(z - last_z_an) < 1e-12) return last_an_val;
+
+    boost::math::quadrature::gauss_kronrod<double, 31> integrator;
+    auto f_fixed_z = [this, z](double psi) { return 1.0 / B(z, psi); };
+    last_an_val = sqrt(2.0 * integrator.integrate(f_fixed_z, 0, 1));
+    last_z_an = z;
+    return last_an_val;
+}
+double a (double z)const{
+    return a_nenorm(z);
+}
+mutable double last_z_a2n = -1.0, last_a2n_val = 0.0;
+double a2_nenorm(double z) const {
+        if (std::abs(z - last_z_a2n) < 1e-12) return last_a2n_val;
+        boost::math::quadrature::gauss_kronrod<double, 31> integrator;
+        auto f_fixed_z = [this, z](double psi) { return 1.0 / B(z, psi); };
+        last_a2n_val = 2.0 * integrator.integrate(f_fixed_z, 0, 1);
+        last_z_a2n = z;
+        return last_a2n_val;
+    }
+double a2 (double z)const{
+    return a2_nenorm(z);
+}
+mutable double last_z = -1.0;
+mutable double last_da = 0.0;
+double d_a (double z)const{
+    if (std::abs(z - last_z) < 1e-12) return last_da; // Возвращаем кэш
+    auto func = [this](double x) { return this->a(x); };
+    last_z = z;
+    last_da = boost::math::differentiation::finite_difference_derivative(func, z);
+    return last_da;
+}
+
+mutable double last_z_da2 = -1.0;
+mutable double last_da2_val = 0.0;
+double d_a2(double z) const {
+    if (std::abs(z - last_z_da2) < 1e-12) return last_da2_val; 
+    
+    auto func = [this](double x) { return this->a2(x); };
+    last_da2_val = boost::math::differentiation::finite_difference_derivative(func, z);
+    last_z_da2 = z;
+    return last_da2_val;
+}
+double p_sred (double z,double psi)const{
+    if(z>Z_s){return 0;}
+    return (p_perp(z,psi)+p_paral(z,psi))/2.0;
+}
+mutable double last_z_pavg = -1.0, last_pavg_val = 0.0;
+double p_avg(double z) const {
+    if(z>Z_s){return 0;}
+        if (std::abs(z - last_z_pavg) < 1e-12) return last_pavg_val;
+        boost::math::quadrature::gauss_kronrod<double, 31> integrator;
+        auto f_fixed_z = [this, z](double psi) { return p_sred(z, psi) / B(z, psi); };
+        double res = 2.0 / (a2(z)) * integrator.integrate(f_fixed_z, 0, 1.0);
+        last_pavg_val = (res < 0.0) ? 0.0 : res;
+        last_z_pavg = z;
+        return last_pavg_val;
+    }
+};
+
 
 struct Wall_1 {
     // double RR_w = 2.25;
@@ -798,10 +1043,10 @@ double right_func(double z) const {
 bool compareSecond(const std::pair<double, double>& a, const std::pair<double, double>& b) {
     return std::abs(a.second) < std::abs(b.second);
 }
-// double r=0.11;
-// double phase=M_PI/2.1;
+
+
 template <template<class, class> class EquationType, class Model, class Wall>
-std::pair<double,double> reshatel(Model& model, Wall& wall, int resuis, double dx,double r_init, double phase_init) {
+std::complex<double> reshatel_0(Model& model, Wall& wall, double dx,double r_init, double phase_init) {
     using namespace std::complex_literals;
     double r=r_init;
     double phase=phase_init;
@@ -823,8 +1068,8 @@ std::pair<double,double> reshatel(Model& model, Wall& wall, int resuis, double d
 double delta=0.00000001; // задаёт точность зануления на правой границе 
 double phase_step_min=pow(0.1,4);
 double r_step_min=pow(0.1,4);// сделаны чтобы обрывать бесконечные уменьшения шага
-double phase_step=-M_PI/3000;
-double r_step=0.0002;
+double phase_step=-M_PI/30;
+double r_step=0.1;
 double previous_max=1;
 int counter=0;
 int counter1=0;
@@ -834,18 +1079,107 @@ int swich1=0;  // переключатель для повторной прис�
 std::vector<std::pair<double,std::pair<double,double>>> bc_arr;
     std::vector<std::pair<double,std::complex<double>>> res,res1,magf,magf_v;
     std::vector<std::pair<double,double>> real_res,im_res,dres,dres1;
-    double beta=model.p_0*(model.R*model.R-1)/(model.R*model.R-model.p_0);
-    
+    double beta=model.bbbeta;
+    double p0=model.p_0;
     std::cout<<"Beta: " <<beta<<std::endl;
+    std::cout<<"p_0: " <<p0<<std::endl;
     std::complex<double> bc=1.0+1.0i;
-    std::complex<double> previous_bc=bc*10.0;
 
-    while((std::abs(bc))/abs(previous_max)>delta ){//начало цикла для решения уравнения
 
 std::cout<<std::endl<<"dzeta: " <<model.dzeta(w1);
         res.clear();dres.clear();dres1.clear();real_res.clear();im_res.clear();
   
         auto my_observer=[&]( const state_type1 &y, const double x ) {// запись решения в данной точке
+    res.push_back(std::make_pair(x,y[0]));
+    dres.push_back(std::make_pair(x,std::real(y[1])));
+    dres1.push_back(std::make_pair(x,std::imag(y[1])));
+
+    real_res.push_back(std::make_pair(x,std::real(y[0])));
+    im_res.push_back(std::make_pair(x,std::imag(y[0])));
+    //  if(Z_s<res.back().first&&Z_s<res[res.size()-2].first){
+    //     phi_z_s=std::real(y[0]);
+    // }
+    };
+
+
+    //dres.push_back(std::make_pair(1.0,1.0));
+    boost::numeric::odeint::runge_kutta_fehlberg78<state_type1> stepper;// метод решения
+    // Initial conditions: {y(x0), y'(x0)}
+    state_type1 y0 = { 1, 0};
+    // Integration range and initial step size
+    double x0 = 0;   // Start of the interval
+    double x1 = 1;     // End of the interval
+     // Initial step size
+    // Perform the integration
+    // integrate_const( stepper, equation, y0, x0, 0.5, 0.005, my_observer );// само решение
+    integrate_const( stepper, equation, y0, x0, x1, dx, my_observer );// само решение
+    bc=dres.back().second+1.0i*dres1.back().second;
+    std::cout << "|bc|:"<<std::abs(bc) << "_real(bc): " <<std::real(bc)<< "_Imag(bc): " <<std::imag(bc)<<" w="<< w1<< ",phase=Pi*"<<phase/M_PI<<"r=" <<std::setprecision(10)<<r<<std::endl;
+        std::cout<<"w^2: " <<w1*w1<< " phi'="<<dres.back().second <<std::endl;
+
+std::cout<<std::endl<<"beta: " <<model.bbbeta<<std::endl;
+std::cout<<std::endl<<"dzeta: " <<model.dzeta(w1)<<std::endl;
+
+std::cout <<"|d_phi|1|:"<< sqrt(pow(dres.back().second,2)+pow(dres1.back().second,2));
+
+    return bc;
+}
+
+
+
+template <template<class, class> class EquationType, class Model, class Wall>
+std::pair<double,double> reshatel(Model& model, Wall& wall, int resuis, double dx,double r_init, double phase_init, std::string imya) {
+    using namespace std::complex_literals;
+    double r=r_init;
+    double phase=phase_init;
+    std::complex<double> w1=r*exp(1.0i*phase);
+    model.update();
+    EquationType<Model, Wall> equation(model, wall, w1);
+    std::cout <<"RR_w: " <<model.RR_w<< std::endl;
+    std::cout <<"k: "<< model.k<<std::endl;
+    std::cout <<"M: "<< model.M<<std::endl;
+    std::cout <<"q: "<< model.q<<std::endl;
+    std::cout <<"a(0): "<< model.a(0)<<std::endl;
+    std::cout <<"r_w(0): "<<wall.r_w(0)<<std::endl;
+    std::cout <<"w_0: "<< model.w_0<<std::endl;
+    std::cout <<"zeta_0: "<< model.zeta_0<<std::endl;
+    std::cout <<"Lambda : "<< equation.lambda(0)<<std::endl;
+    std::cout <<"Lambda_1 : "<< equation.lambda_1(0)<<std::endl;
+    // double Z_s=z_s();
+    //     double phi_z_s;
+double delta=0.00000001; // задаёт точность зануления на правой границе 
+double phase_step_min=pow(0.1,4);
+double r_step_min=pow(0.1,4);// сделаны чтобы обрывать бесконечные уменьшения шага
+double phase_step=-M_PI/3;
+double r_step=0.1;
+double previous_max=1;
+int counter=0;
+int counter1=0;
+int swich=0; // переключатель для пристрелки по фазе и радиусу
+int swich1=0;  // переключатель для повторной пристрелки 
+
+std::vector<std::pair<double,std::pair<double,double>>> bc_arr;
+    std::vector<std::pair<double,std::complex<double>>> res,res1,magf,magf_v;
+    std::vector<std::pair<double,double>> real_res,im_res,dres,dres1;
+    double beta=model.bbbeta;
+    double p0=model.p_0;
+    std::cout<<"Beta: " <<beta<<std::endl;
+    std::cout<<"p_0: " <<p0<<std::endl;
+
+
+    std::complex<double> previous_bc=reshatel_0<EquationType>(model,wall, dx, r, phase);
+    phase+=phase_step;//+phase_step т.к. далее пристрелка начинается с варьирования фазы
+    w1=r*exp(1.0i*phase);
+    equation.set_omega(w1);
+    std::complex<double> bc=reshatel_0<EquationType>(model,wall, dx, r, phase);
+
+
+while((std::abs(bc))/abs(previous_max)>delta ){//начало цикла для решения уравнения
+
+std::cout<<std::endl<<"dzeta: " <<model.dzeta(w1);
+        res.clear();dres.clear();dres1.clear();real_res.clear();im_res.clear();
+  
+        auto my_observer=[&]( const state_type1 &y, const double x ) {// запись решения при данной частоте(необязтельно собственной)
     res.push_back(std::make_pair(x,y[0]));
     dres.push_back(std::make_pair(x,std::real(y[1])));
     dres1.push_back(std::make_pair(x,std::imag(y[1])));
@@ -886,7 +1220,7 @@ std::cout<<std::endl<<"dzeta: " <<model.dzeta(w1);
             counter++;
         if(counter>=5&&(phase_step<phase_step_min*100)){
             phase-=phase_step;
-                phase_step=-phase_step*pow(2,counter-3);
+                phase_step=-phase_step*pow(2,counter-2);
                 phase+=phase_step;
                 counter=0;
             }
@@ -915,7 +1249,7 @@ std::cout<<std::endl<<"dzeta: " <<model.dzeta(w1);
                 r+=r_step;
                 counter=0;
             }
-            if(abs(r_step)<r_step_min){  if(swich1==6){std::cout <<std::endl << "Dela"<<std::endl; break;}else{r_step_min/=10;phase_step_min/=10;swich1++;swich=0;phase_step*=10;r_step*=10;counter=0;previous_bc=bc;}}
+            if(abs(r_step)<r_step_min){  if(swich1==5){std::cout <<std::endl << "Dela"<<std::endl; break;}else{r_step_min/=10;phase_step_min/=10;swich1++;swich=0;phase_step*=10;r_step*=10;counter=0;previous_bc=bc;}}
         }else{
         r+=r_step;
         counter=0;
@@ -1006,7 +1340,7 @@ if(resuis==0){
 }else if(resuis==8){
      resis="_GDL_res";
 }
-std::string folder1 = "newprovod_M=" + std::to_string(model.M) + "_" +
+std::string folder1 = imya+ "M=" + std::to_string(model.M) + "_" +
                       "q=" + std::to_string(model.q) + "_" +
                       "k=" + std::to_string(model.k) + "_" +
                       "R=" + std::to_string(model.R)+"_alpha="+std::to_string(model.alpha);
@@ -1073,15 +1407,15 @@ std::filesystem::create_directories(folder1 + "/" + folder2 + "/" + folder3);
 
 // #pragma omp threadprivate(r, phase)
 int main() {
-    SharedInterpolationData shared_data;
-    std::string papka_int = R"(C:\Users\MJ\Desktop\ballon\pole\clean\)";
-    shared_data.load_all(papka_int);
-double start_beta = 0.2;
-    double end_beta = 0.98;
-    double step = 0.05;
-    int steps = static_cast<int>((end_beta - start_beta) / step);
-double r1 = 0.139;
-        double phase1 =M_PI*0.5;
+//     SharedInterpolationData shared_data;
+//     std::string papka_int = R"(C:\Users\MJ\Desktop\ballon\pole\clean\)";
+//     shared_data.load_all(papka_int);
+// double start_beta = 0.2;
+//     double end_beta = 0.98;
+//     double step = 0.05;
+//     int steps = static_cast<int>((end_beta - start_beta) / step);
+double r1 = 0.22188;
+        double phase1 =M_PI/2;
 // #pragma omp parallel for schedule(dynamic)
 //     for (int i = 0; i <= steps; ++i) {
 //         double current_beta = start_beta + i * step;
@@ -1155,20 +1489,22 @@ std::pair<double,double> para1=para;
     //     }
     // }
 
-    PlasmaModel_A1 plasma1;
+    PlasmaModel_A3 plasma1;
  Wall_Pr walst(plasma1);
-    plasma1.M=4;
+ Wall_St walstr;
+    plasma1.M=8;
     plasma1.k=4;
     plasma1.q=4;
     plasma1.R=1.5;
-    plasma1.RR_w=1.1;
+    plasma1.RR_w=1.5;
 
             plasma1.update(); 
-     for(double beta=0.67;beta>=0.63;beta-=0.01){
+     for(double beta=0.71;beta<=0.83;beta+=0.01){
             plasma1.bbbeta=beta;
             plasma1.update();
-            
-                para=reshatel<LoDestroEquation>(plasma1, walst, 2, 0.01, para.first,para.second);
+            std::cout <<std::endl<<std::endl<< "p_0="<<plasma1.p_0<<std::endl<<std::endl;
+            if(plasma1.p_0>1.0){std::cout << "Karaul p>1";break;}
+                para=reshatel<LoDestroEquation>(plasma1, walst, 1, 0.001, para.first,para.second, "A3_");
 
         }
 
