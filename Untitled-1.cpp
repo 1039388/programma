@@ -29,7 +29,6 @@
 #define M_PI 3.14159265358979323846
 using namespace std::complex_literals;
 typedef std::vector<std::complex<double>> state_type1;
-
 class FileInterpolator {
 private:
     std::unique_ptr<boost::math::interpolators::barycentric_rational<double>> interp;
@@ -553,14 +552,13 @@ PlasmaModel_A3() { update(); }
 
 void update() {
     p_0 = -0.125 * (bbbeta) / (std::pow(1.0 - std::sqrt(1.0 - bbbeta)/R, 2) * (-1.0 + bbbeta));
-    B_s_=B_v_*R;
     w_0=B_v_/(L*sqrt(N_c*1.6726*pow(0.1,24)));
     r_0=RR_w*a_0;
     c=c_0;
     zeta_0=c/w_0/r_0;
     last_z_ddav = last_z_an = last_z_a2n = -1.0;
     last_z = last_z_da2 = last_z_pavg = -1.0;
-    Z_s=Z_s_1();
+    Z_s=2/M_PI*asin(pow((R-1)/(M-1),1/q));
         // Загрузка файлов и инициализация интерполяторов здесь (один раз!)
         // load_interpolation_data();
 }
@@ -606,9 +604,6 @@ double b_v (double z)const{
 
 }
 
-double Z_s_1(){
-    return 2/M_PI*asin(pow((R-1)/(M-1),1/q));
-}
 
 double B(double z, double psi) const {
     double Bv=B_v(z);
@@ -669,7 +664,7 @@ double B(double z, double psi) const {
     // 7. Итоговая сборка формулы: b = 1/2 - 1/2*S1 + 1/2*S2
     double b = 0.5 - 0.5 * S1 + 0.5 * S2;
 
-    return b;
+    return b; 
 }
 double p_perp(double z, double psi) const{
     if(B_v(z)>1.0){return 0;}
@@ -761,6 +756,92 @@ double p_avg(double z) const {
 };
 
 
+struct Wall_stena {
+    double r_w(double z) const {
+        // Участок -1.0 <= z <= -0.966414225
+        if (z <= -0.966414225) {
+            return 0.189 + (0.09 - 0.189) * (z + 1.0) / (-0.966414225 + 1.0);
+        }
+        // Участок -0.966414225 < z <= -0.917023378
+        else if (z <= -0.917023378) {
+            return 0.09;
+        }
+        // Участок -0.917023378 < z <= -0.883272967
+        else if (z <= -0.883272967) {
+            return 0.09 + (0.226 - 0.09) * (z + 0.917023378) / (-0.883272967 + 0.917023378);
+        }
+        // Участок -0.883272967 < z <= -0.851827461
+        else if (z <= -0.851827461) {
+            return 0.226 + (0.3055 - 0.226) * (z + 0.883272967) / (-0.851827461 + 0.883272967);
+        }
+        // Участок -0.851827461 < z <= -0.759631215
+        else if (z <= -0.759631215) {
+            return 0.3055 + (0.348 - 0.3055) * (z + 0.851827461) / (-0.759631215 + 0.851827461);
+        }
+        // Участок -0.759631215 < z <= -0.601580507
+        else if (z <= -0.601580507) {
+            return 0.348;
+        }
+        // Участок -0.601580507 < z <= -0.535067501
+        else if (z <= -0.535067501) {
+            return 0.348 + (0.6 - 0.348) * (z + 0.601580507) / (-0.535067501 + 0.601580507);
+        }
+        // Участок -0.535067501 < z <= -0.172374053
+        else if (z <= -0.172374053) {
+            return 0.6;
+        }
+        // Участок -0.172374053 < z <= -0.078366809
+        else if (z <= -0.078366809) {
+            return 0.6 + (1.0 - 0.6) * (z + 0.172374053) / (-0.078366809 + 0.172374053);
+        }
+        // Участок -0.078366809 < z <= 0.078366809
+        else if (z <= 0.078366809) {
+            return 1.0;
+        }
+        // Участок 0.078366809 < z <= 0.172374053
+        else if (z <= 0.172374053) {
+            return 1.0 + (0.6 - 1.0) * (z - 0.078366809) / (0.172374053 - 0.078366809);
+        }
+        // Участок 0.172374053 < z <= 0.535067501
+        else if (z <= 0.535067501) {
+            return 0.6;
+        }
+        // Участок 0.535067501 < z <= 0.601580507
+        else if (z <= 0.601580507) {
+            return 0.6 + (0.348 - 0.6) * (z - 0.535067501) / (0.601580507 - 0.535067501);
+        }
+        // Участок 0.601580507 < z <= 0.759631215
+        else if (z <= 0.759631215) {
+            return 0.348;
+        }
+        // Участок 0.759631215 < z <= 0.851827461
+        else if (z <= 0.851827461) {
+            return 0.348 + (0.3055 - 0.348) * (z - 0.759631215) / (0.851827461 - 0.759631215);
+        }
+        // Участок 0.851827461 < z <= 0.883272967
+        else if (z <= 0.883272967) {
+            return 0.3055 + (0.226 - 0.3055) * (z - 0.851827461) / (0.883272967 - 0.851827461);
+        }
+        // Участок 0.883272967 < z <= 0.917023378
+        else if (z <= 0.917023378) {
+            return 0.226 + (0.09 - 0.226) * (z - 0.883272967) / (0.917023378 - 0.883272967);
+        }
+        // Участок 0.917023378 < z <= 0.966414225
+        else if (z <= 0.966414225) {
+            return 0.09;
+        }
+        // Участок 0.966414225 < z <= 1.0
+        else if (z <= 1.0) {
+            return 0.09 + (0.189 - 0.09) * (z - 0.966414225) / (1.0 - 0.966414225);
+        }
+        // z > 1.0
+        else {
+            return 0.189;
+        }
+    }
+};
+
+
 struct Wall_1 {
     // double RR_w = 2.25;
 
@@ -806,7 +887,7 @@ struct Wall_1_Smooth {
    const double sqrt_pi = std::sqrt(M_PI);
 
     double r_w(double z) const {
-        // Предварительный расчет повторяющихся значений для оптимизации
+        
         double arg1 = 0.13714285714285715 - z;
         double arg2 = 0.42228571428571426 - z;
         double arg3 = 0.7587142857142857 - z;
@@ -822,7 +903,7 @@ struct Wall_1_Smooth {
 
         double res = 24.45;
 
-        // Гауссовы "всплески" (экспоненты)
+        
         res -= 215.0 / (998.0 * std::exp(4900.0 * arg1 * arg1) * sqrt_pi);
         res += 215.0 / (998.0 * std::exp(4900.0 * arg2 * arg2) * sqrt_pi);
         res -= 2095.0 / (1318.0 * std::exp(4900.0 * arg3 * arg3) * sqrt_pi);
@@ -830,7 +911,7 @@ struct Wall_1_Smooth {
         res += 2095.0 / (1317.0 * std::exp(4900.0 * arg5 * arg5) * sqrt_pi);
         res -= 2095.0 / (1317.0 * std::exp(4900.0 * arg6 * arg6) * sqrt_pi);
 
-        // Слагаемые с функциями ошибок (Erf)
+        
         res += ((41077.0 + 75250.0 * z) * std::erf(erf_part1)) / 4990.0;
         res += ((2192613.0 - 5192250.0 * z) * std::erf(erf_part2)) / 344310.0;
         
@@ -852,7 +933,7 @@ struct Wall_1_Smooth {
         res += (2777551.0 * erf6) / 26360.0;
         res -= (73325.0 * z * erf6) / 659.0;
 
-        // Завершающий Erfc
+        
         res += (489.0 * std::erfc(erf_part5)) / 20.0;
 
         return res;
@@ -1169,7 +1250,8 @@ std::cout <<"|d_phi|1|:"<< sqrt(pow(dres.back().second,2)+pow(dres1.back().secon
 
 
 template <template<class, class> class EquationType, class Model, class Wall>
-std::pair<double,double> reshatel(Model& model, Wall& wall, int resuis, double dx,double r_init, double phase_init,int bc_reg, int mod_switch,std::string imya) {
+std::pair<double,double> reshatel(Model& model, Wall& wall, int resuis, double dx,double r_init, double phase_init,int bc_reg, int mod_switch,std::string imya)  //если mode_switch=1 - пристрелка только по радиусу(для фикс phase=pi/2\\0)
+{
     using namespace std::complex_literals;
     double r=r_init;
     double phase=phase_init;
@@ -1190,12 +1272,13 @@ std::pair<double,double> reshatel(Model& model, Wall& wall, int resuis, double d
     //     double phi_z_s;
 double delta=0.00000001; // задаёт точность зануления на правой границе 
 double phase_step_min=pow(0.1,4);
-double r_step_min=pow(0.1,5);// сделаны чтобы обрывать бесконечные уменьшения шага
+double r_step_min=pow(0.1,7);// сделаны чтобы обрывать бесконечные уменьшения шага
 double phase_step=-M_PI/30;
-double r_step=0.1;
+double r_step=r_init/10.0;
 double previous_max=1;
 int counter=0;
 int counter1=0;
+int counter2=0;
 int swich=0; // переключатель для пристрелки по фазе и радиусу
 
 if(mod_switch==1){swich=1;}
@@ -1241,10 +1324,9 @@ std::cout<<std::endl<<"dzeta: " <<model.dzeta(w1);
     // Initial conditions: {y(x0), y'(x0)}
     state_type1 y0 = { 1, 0};
     // Integration range and initial step size
-    double x0 = 0;   // Start of the interval
-    double x1 = 1;     // End of the interval
-     // Initial step size
-    // Perform the integration
+    double x0 = 0; 
+    double x1 = 1; 
+     
     // integrate_const( stepper, equation, y0, x0, 0.5, 0.005, my_observer );// само решение
     integrate_const( stepper, equation, y0, x0, x1, dx, my_observer );// само решение 
     if(bc_reg==0){
@@ -1265,7 +1347,7 @@ std::cout<<std::endl<<"dzeta: " <<model.dzeta(w1);
 double temp_phase = phase + phase_step;
             if (temp_phase < 0) {
                 phase = 0;
-                phase_step = phase_step / 2; // Keep direction but smaller
+                phase_step = phase_step / 2; 
             } else {
                 phase = temp_phase;
             }
@@ -1277,7 +1359,7 @@ double temp_phase = phase + phase_step;
 double temp_phase = phase + phase_step;
             if (temp_phase < 0) {
                 phase = 0;
-                phase_step = phase_step / 2; // Keep direction but smaller
+                phase_step = phase_step / 2; 
             } else {
                 phase = temp_phase;
             }
@@ -1315,14 +1397,17 @@ double temp_phase = phase + phase_step;
             counter++;
             if(counter>=5&&(abs(r_step)<r_step_min*100)){
                 r-=r_step;
-                r_step=-r_step*pow(2,counter-3);
+                r_step=-r_step*pow(2,counter-1);
                 r+=r_step;
                 counter=0;
             }
-            if(abs(r_step)<r_step_min){  if(swich1==3){std::cout <<std::endl << "Dela"<<std::endl; break;}else{r_step_min/=10;phase_step_min/=10;swich1++;if(mod_switch!=1){swich=0;}else{r_step/=10;}phase_step*=10;r_step*=10;counter=0;previous_bc=bc;}}
+            if(abs(r_step)<r_step_min){  if(swich1==8){std::cout <<std::endl << "Dela"<<std::endl; break;}else{r_step_min/=10;phase_step_min/=10;swich1++;if(mod_switch!=1){swich=0;}else{r_step/=10;}phase_step*=10;r_step*=10;counter=0;previous_bc=bc;}}
         }else{
+            while(abs(r)<abs(r_step)){r_step/=2;counter++;}// помогает не забегать на r<0, но не исключает
         r+=r_step;
         counter=0;
+        counter2++;
+        if(counter2>5){r_step*=5;counter2=0;}//ускорение
         previous_bc=bc;
             if(bc_reg==0){
    previous_max= sqrt(pow(std::max_element(dres.begin(), dres.end(),compareSecond)->second,2)+pow(std::max_element(dres1.begin(), dres1.end(),compareSecond)->second,2));}
@@ -1482,112 +1567,46 @@ std::filesystem::create_directories(folder1 + "/" + folder2 + "/" + folder3);
 
 // #pragma omp threadprivate(r, phase)
 int main() {
-//     SharedInterpolationData shared_data;
-//     std::string papka_int = R"(C:\Users\MJ\Desktop\ballon\pole\clean\)";
-//     shared_data.load_all(papka_int);
-// double start_beta = 0.2;
-//     double end_beta = 0.98;
-//     double step = 0.05;
-//     int steps = static_cast<int>((end_beta - start_beta) / step);
-double r1 = 0.0001122188;
-        double phase1 =M_PI/2;
-// #pragma omp parallel for schedule(dynamic)
-//     for (int i = 0; i <= steps; ++i) {
-//         double current_beta = start_beta + i * step;
-
-//         // Передаем ссылку на shared_data в модель
-//         PlasmaModel_A1_int model(shared_data);
-//         model.RR_w = 2.25;
-//         model.bbbeta = current_beta;
-//         model.R = 3.2;
-//         model.B_v_ = 3671.324;
-//         model.update();
-
-//         Wall_St wall;
-
-//         #pragma omp critical(print)
-//         std::cout << "\nStarting Thread " << omp_get_thread_num() << " for beta: " << current_beta << std::endl;
-
-//         reshatel<LoDestroEquation_int2>(model, wall, 7, 0.01, 0.8, M_PI / 2.0);
-//     }
-//     return 0;
-
-
-
-    //     PlasmaModel_A1_int model(shared_data);
-    //     model.RR_w = 2.25;
-    //     model.bbbeta = 0.4;
-    //     model.R = 3.2;
-    //     model.B_v_ = 3671.324;
-    //     model.update();
-
-    //     Wall_1 wall;
-    //             reshatel<LoDestroEquation_int2>(model, wall, 7, 0.001, 0.8, M_PI / 2.0);
-
-//  Wall_1 wall;
-//  Wall_1_Smooth wall2;
-//  std::vector<std::pair<double,double>> stena,stena2;
-//  for(double i=0.0;i<=1.0;i+=0.001){
-//     stena.push_back(std::make_pair(i,wall.r_w(i)));
-//     stena2.push_back(std::make_pair(i,wall2.r_w(i)/48.9));
-//  }
-//  Gnuplot gp;
- 
-//     gp << "set title ' Wall'\n";
-//     gp << "set xlabel 'z'\n";
-//     gp << "set ylabel 'r_w(z)'\n";
-//     gp << "set grid\n";
-//     gp <<" set terminal wxt\n";
-//     gp << "plot '-' with lines title 'r_w(z)' lw 2 lc rgb 'red', '-' with lines title 'r_w\\_smooth(z)' lw 2 lc rgb 'blue'\n";
-//     gp.send1d(stena);gp.send1d(stena2);
-
+    
+double r1 =0.01485475;
+        double phase1 =M_PI/2.0;
 
 std::pair<double,double> para=std::make_pair(r1,phase1);
 std::pair<double,double> para1=para;
-    // Wall_St walst;
-    // PlasmaModel_A1 plasma1;
-    // plasma1.M=8;
-    // plasma1.k=4;
-    // plasma1.q=4;
-    // plasma1.R=1.1;
-    // plasma1.RR_w=2.25;
-    // for(int i=-3;i<=3;i++){
-    //         plasma1.alpha=i;
-    //         plasma1.update();
-    //         para=para1;
-    //     for(double beta=0.6;beta<=0.99;beta+=0.02){
-    //         plasma1.bbbeta=beta;
-    //         plasma1.update();
-            
-    //             para=reshatel<LoDestroEquation>(plasma1, walst, 7, 0.005, para.first,para.second);
 
-    //     }
-    // }
 
     PlasmaModel_A1 plasma1;
  Wall_Pr walstr(plasma1);
  Wall_St walst1;
-    plasma1.M=4;
-    plasma1.k=4;
+    plasma1.M=8;
+    plasma1.k=2;
     plasma1.q=4;
-    plasma1.R=1.5;  
-    plasma1.RR_w=1.1;
+    plasma1.R=1.1;  
+    plasma1.RR_w=1.3;
 std::string stena;  
             plasma1.update(); 
             
-            for(double rrww =1.1;rrww<=5.1;rrww+=0.5){
-                stena="neustR_w"+std::to_string(rrww);
- for(double beta=0.65;beta<0.99;beta+=0.02){
+   std::cout<<"123" << std::endl;
+   std::cout<<"123" << std::endl;
+   std::cout<<"123" << std::endl;
+   std::cout<<"123" << std::endl;
+   std::cout<<"123" << std::endl;
+   std::cout<<"123" << std::endl;
+
+for (double beta=0.3;beta<1.0;beta+=0.02) {
+  
+
         plasma1.bbbeta = beta; 
-        plasma1.RR_w = rrww; 
+        plasma1.alpha = 0; 
         plasma1.update();
         
         Wall_Pr walstr(plasma1);
         
-        // Проверка условия выхода
-if (plasma1.p_0 > 1.0) {std::cout << "Karaul p>1 " << ", beta=" << beta << std::endl;break; }
+        if (plasma1.p_0 > 1.0)//Условие на выход перед пересечением шланговой/зеркальной неустойчивости
+         {
+            std::cout << "Karaul p>1 , beta=" << beta << std::endl;
+            break; 
+        }
+        para1=reshatel<LoDestroEquation>(plasma1, walstr,0,0.01, para1.first,para1.second,0,0,"probaA3");
 
-        // Выполнение расчетов
-        para = reshatel<LoDestroEquation>(plasma1, walstr, 1, 0.01, para.first, para.second, 0, 1, stena);
-
-}}}
+}}
