@@ -14,7 +14,7 @@ std::string imya - название папки<br>
 reshatel_0 - решение уравнения при конкретной ω, входит в reshatel<br>
 уравнение решается с помощью runge_kutta_fehlberg78 - в модельных случаях на скорость вычислений не влияет;<br>
 запуск функции будет выглядеть примерно так:
-para1=reshatel<LoDestroEquation>(plasma1, walstr,0,0.01, para1.first,para1.second,0,0,"probaA3");<br>
+para1=reshatel"<"LoDestroEquation">"(plasma1, walstr,0,0.01, para1.first,para1.second,0,0,"probaA3");<br>
 struct LoDestroEquation - структура с уравнением Лодестро (LoDestroEquation_int2 - для интерполированного поля, совместима только с PlasmaModel_A1_int)<br>
 В решателе сидит костыль, выделяющий только неустойчивые ветви.(изредка отламывается)<br>
 Помимо этого, внутри reshatel() есть отдельные параметры: r_step_min, phase_step_min - ограничивают бесконечные уменьшения шага, delta - задаёт точность зануления на правой границе( на практике чаще достигался минимальный шаг пристрелки, а на правой границе с достаточной точностью был 0)<br>
